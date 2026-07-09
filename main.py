@@ -1,5 +1,6 @@
 import json
 from llm_sdk.llm_sdk import Small_LLM_Model
+import numpy as np
 
 
 def get_allowed_ids(remaining: str, vocab: dict[str, int]) -> list[int]:
@@ -13,15 +14,22 @@ def get_allowed_ids(remaining: str, vocab: dict[str, int]) -> list[int]:
     allowed = []
     for i in range(1, len(remaining)):
         token = remaining[:i]
+        print(token)
         if token in vocab:
+            print(f"Matched token: {token}")
             allowed.append(vocab[token])
-
+    print(allowed)
     return allowed
 
+
 def get_union_allowed_ids(candidates: dict[str, str], vocab: dict[str, int]) -> list[int]:
+    unioned_ids = set()
     for i in candidates.values(): 
         print(f"i id {i}")
-        get_allowed_ids(i, vocab)
+        for id in get_allowed_ids(i, vocab):
+            unioned_ids.add(id)
+    print(f"Allowed ids: {unioned_ids}")
+    return (list(unioned_ids))
 
 
 def update_candidates(candidates: dict[str, str], chosen_str: str) -> dict[str, str]:
@@ -40,22 +48,47 @@ def update_candidates(candidates: dict[str, str], chosen_str: str) -> dict[str, 
 def main() -> None:
     """モデルと語彙を準備して get_allowed_ids を試す."""
     model = Small_LLM_Model()
-    
+
     function_names = ["fn_add_numbers", "fn_greet", "fn_reverse_string"]
     candidates = {name: name for name in function_names}
-    print(update_candidates(candidates, "fn_g"))
-
+    updated_candidates = update_candidates(candidates, "fn_")
 
     vocab_path = model.get_path_to_vocab_file()
-    print(vocab_path)
+    # print(vocab_path)
     with open(vocab_path, "r", encoding="utf-8") as f:
         vocab = json.load(f)
 
-    for name in function_names:
-        ids = get_allowed_ids(name, vocab)
-        print(f"{name}: {len(ids)}個の合法な第一歩")
-        for tid in ids:
-            print(f"   {tid:6d} {model.decode([tid])!r}")
+    allowed_ids = get_union_allowed_ids(updated_candidates, vocab)
+    print(allowed_ids)
+
+    prompt = "what is the sum of 4 and 38?"
+    generated = model.encode(prompt).flatten().tolist()
+    print(generated)
+
+    prefix = '{"name": "'
+    prefix_ids = model.encode(prefix).flatten().tolist()
+
+    generated.extend(prefix_ids)
+    print(generated)
+    for target_id in prefix_ids:
+        step_logits = np.array(model.get_logits_from_input_ids(generated))
+        step = step_logits.flatten().tolist()
+        vo = step.index(max(step_logits))
+        # print(f"INDEX of Most high proba: {vo}")
+        mask = np.full_like(step_logits, -np.inf)
+        mask[target_id] = 0.0
+        chosen = int(np.argmax(step_logits + mask))
+        # print(chosen)
+        # print(step_logits)
+        # print(f"MODEL WANTED: {[k for k, v in vocab.items() if v == vo]}")
+        # print(f"FORCED: {[k for k, v in vocab.items() if v == chosen]}")
+        generated.append(chosen)
+
+    # for name in function_names:
+    #     ids = get_allowed_ids(name, vocab)
+    #     print(f"{name}: {len(ids)}個の合法な第一歩")
+    #     for tid in ids:
+    #         print(f"   {tid:6d} {model.decode([tid])!r}")
 
 
 if __name__ == '__main__':
