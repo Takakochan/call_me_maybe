@@ -1,6 +1,8 @@
 import json
-from llm_sdk.llm_sdk import Small_LLM_Model
 import numpy as np
+
+from llm_sdk.llm_sdk import Small_LLM_Model
+from parser import Parser
 
 
 def get_allowed_ids(remaining: str, vocab: dict[str, int]) -> list[int]:
@@ -49,23 +51,23 @@ def update_candidates(candidates: dict[str, str], chosen_str: str) -> dict[str, 
 
 def main() -> None:
     """モデルと語彙を準備して get_allowed_ids を試す."""
-    model = Small_LLM_Model()
+    # model = Small_LLM_Model()
 
-    function_names = ["fn_add_numbers", "fn_greet", "fn_reverse_string"]
-    candidates = {name: name for name in function_names}
-    updated_candidates = update_candidates(candidates, "fn_")
+    # function_names = ["fn_add_numbers", "fn_greet", "fn_reverse_string"]
+    # candidates = {name: name for name in function_names}
+    # updated_candidates = update_candidates(candidates, "fn_")
 
-    vocab_path = model.get_path_to_vocab_file()
+    # vocab_path = model.get_path_to_vocab_file()
     # print(vocab_path)
-    with open(vocab_path, "r", encoding="utf-8") as f:
-        vocab = json.load(f)
+    # with open(vocab_path, "r", encoding="utf-8") as f:
+    #     vocab = json.load(f)
 
     # ket = next(iter(vocab))
     # print(ket)
     # print(vocab[ket])
 
-    allowed_ids = get_union_allowed_ids(updated_candidates, vocab)
-    print(allowed_ids)
+    # allowed_ids = get_union_allowed_ids(updated_candidates, vocab)
+    # print(allowed_ids)
 
     # prompt = "what is the sum of 4 and 38?"
     # generated = model.encode(prompt).flatten().tolist()
@@ -105,7 +107,14 @@ def main() -> None:
     #     print(f"{name}: {len(ids)}個の合法な第一歩")
     #     for tid in ids:
     #         print(f"   {tid:6d} {model.decode([tid])!r}")
+    try:
+        Parser("/home/tkunugi/sgoinfre/CallMeMaybe/data/input/function_calling_tests.json", "/home/tkunugi/sgoinfre/CallMeMaybe/data/input/functions_definition.json")
+    except Exception as e:
+        raise ValueError(e)
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        print(e)
