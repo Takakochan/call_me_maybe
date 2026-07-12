@@ -6,12 +6,12 @@ class PromptWrite(BaseModel):
     prompt: str
 
 
-class Parameterschema(BaseModel):
+class ParameterSchema(BaseModel):
     type: Literal["number", "string", "boolean"]
 
 
 class FunctionDifinition(BaseModel):
     name: str
     description: str
-    parameters: dict[str, Parameterschema]
-    returns: Parameterschema
+    parameters: dict[str, ParameterSchema]
+    returns: ParameterSchema

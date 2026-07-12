@@ -1,6 +1,6 @@
 import json
 from pydantic import ValidationError
-from model import PromptWrite, Parameterschema, FunctionDifinition
+from model import PromptWrite, ParameterSchema, FunctionDifinition
 
 
 class ParserError(Exception):
@@ -58,8 +58,14 @@ class Parser:
 
     def _parse_prompt(self, path: str) -> list[PromptWrite]:
         raw = _load_json(path)
-        return [PromptWrite(**entry) for entry in raw]
+        try:
+            return [PromptWrite(**entry) for entry in raw]
+        except ValidationError as e:
+            raise InputSchemaError(path, e) from e
 
     def _parse_func(self, path: str) -> list[FunctionDifinition]:
         raw = _load_json(path)
-        return [FunctionDifinition(**entry) for entry in raw]
+        try:
+            return [FunctionDifinition(**entry) for entry in raw]
+        except ValidationError as e:
+            raise InputSchemaError(path, e) from e
