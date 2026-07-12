@@ -22,20 +22,22 @@ def get_allowed_ids(remaining: str, vocab: dict[str, int]) -> list[int]:
     return allowed
 
 
-def get_union_allowed_ids(candidates: dict[str, str], vocab: dict[str, int]) -> list[int]:
+def get_union_allowed_ids(
+    candidates: dict[str, str], vocab: dict[str, int]
+) -> list[int]:
     unioned_ids = set()
-    for i in candidates.values(): 
+    for i in candidates.values():
         print(f"i id {i}")
         for id in get_allowed_ids(i, vocab):
             unioned_ids.add(id)
-    print(f"Allowed ids: {unioned_ids}")
-    return (list(unioned_ids))
+    print(f"Union Allowed ids: {unioned_ids}")
+    return list(unioned_ids)
 
 
 def update_candidates(candidates: dict[str, str], chosen_str: str) -> dict[str, str]:
     for original, candidate in candidates.items():
         if chosen_str in candidate:
-            candidates[original] = candidate[len(chosen_str):]
+            candidates[original] = candidate[len(chosen_str) :]
     delete_items = []
     for key, value in candidates.items():
         if key == value:
@@ -58,31 +60,45 @@ def main() -> None:
     with open(vocab_path, "r", encoding="utf-8") as f:
         vocab = json.load(f)
 
+    # ket = next(iter(vocab))
+    # print(ket)
+    # print(vocab[ket])
+
     allowed_ids = get_union_allowed_ids(updated_candidates, vocab)
     print(allowed_ids)
 
-    prompt = "what is the sum of 4 and 38?"
-    generated = model.encode(prompt).flatten().tolist()
-    print(generated)
+    # prompt = "what is the sum of 4 and 38?"
+    # generated = model.encode(prompt).flatten().tolist()
+    # print(generated)
 
-    prefix = '{"name": "'
-    prefix_ids = model.encode(prefix).flatten().tolist()
+    # prefix = '{"name": "'
+    # prefix_ids = model.encode(prefix).flatten().tolist()
 
-    generated.extend(prefix_ids)
-    print(generated)
-    for target_id in prefix_ids:
-        step_logits = np.array(model.get_logits_from_input_ids(generated))
-        step = step_logits.flatten().tolist()
-        vo = step.index(max(step_logits))
-        # print(f"INDEX of Most high proba: {vo}")
-        mask = np.full_like(step_logits, -np.inf)
-        mask[target_id] = 0.0
-        chosen = int(np.argmax(step_logits + mask))
-        # print(chosen)
-        # print(step_logits)
-        # print(f"MODEL WANTED: {[k for k, v in vocab.items() if v == vo]}")
-        # print(f"FORCED: {[k for k, v in vocab.items() if v == chosen]}")
-        generated.append(chosen)
+    # generated.extend(prefix_ids)
+    # print(generated)
+
+    # chosen_func = None
+    # while chosen_func is None:
+    #     allowed_ids = get_union_allowed_ids(updated_candidates, vocab)
+    #     logits = np.array(model.get_logits_from_input_ids(allowed_ids))
+    #     mask = np.full_like(logits, -np.inf)
+    #     mask[allowed_ids] = 0.0
+    #     remain = int(np.argmax(mask + logits))
+    #     generated.append(remain)
+
+    # for target_id in prefix_ids:
+    #     step_logits = np.array(model.get_logits_from_input_ids(generated))
+    #     step = step_logits.flatten().tolist()
+    #     vo = step.index(max(step_logits))
+    #     # print(f"INDEX of Most high proba: {vo}")
+    #     mask = np.full_like(step_logits, -np.inf)
+    #     mask[target_id] = 0.0
+    #     chosen = int(np.argmax(step_logits + mask))
+    #     # print(chosen)
+    #     # print(step_logits)
+    #     # print(f"MODEL WANTED: {[k for k, v in vocab.items() if v == vo]}")
+    #     # print(f"FORCED: {[k for k, v in vocab.items() if v == chosen]}")
+    #     generated.append(chosen)
 
     # for name in function_names:
     #     ids = get_allowed_ids(name, vocab)
@@ -91,5 +107,5 @@ def main() -> None:
     #         print(f"   {tid:6d} {model.decode([tid])!r}")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
