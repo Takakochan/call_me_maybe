@@ -101,30 +101,30 @@ def generate_function_call(
     return chosen_function
 
 
-def main() -> None:
-    """モデルと語彙を準備して get_allowed_ids を試す."""
-    start = time.time()
-    model = Small_LLM_Model()
-    #parser = Parser(sys.argv[1], sys.argv[2])
-    parser = Parser("/home/tkunugi/sgoinfre/CallMeMaybe/data/input/function_calling_tests.json", "/home/tkunugi/sgoinfre/CallMeMaybe/data/input/functions_definition.json")
-    prompts = parser.prompt_list
-    funcs = parser.func_list
-    vocab_path = model.get_path_to_vocab_file()
-    with open(vocab_path, "r", encoding="utf-8") as f:
-        vocab = json.load(f)
-    id_to_token = vocab_id_to_token(vocab)
-    for user_prompt in prompts:
-        print(user_prompt)
-        string = generate_function_call(
-            user_prompt.prompt,
-            funcs,
-            model,
-            vocab,
-            id_to_token
-        )
-        print()
-    end = time.time()
-    print(end - start)
+# def main() -> None:
+#     """モデルと語彙を準備して get_allowed_ids を試す."""
+#     start = time.time()
+#     model = Small_LLM_Model()
+#     #parser = Parser(sys.argv[1], sys.argv[2])
+#     parser = Parser("/home/tkunugi/sgoinfre/CallMeMaybe/data/input/function_calling_tests.json", "/home/tkunugi/sgoinfre/CallMeMaybe/data/input/functions_definition.json")
+#     prompts = parser.prompt_list
+#     funcs = parser.func_list
+#     vocab_path = model.get_path_to_vocab_file()
+#     with open(vocab_path, "r", encoding="utf-8") as f:
+#         vocab = json.load(f)
+#     id_to_token = vocab_id_to_token(vocab)
+#     for user_prompt in prompts:
+#         print(user_prompt)
+#         string = generate_function_call(
+#             user_prompt.prompt,
+#             funcs,
+#             model,
+#             vocab,
+#             id_to_token
+#         )
+#         print()
+#     end = time.time()
+#     print(end - start)
 
 
     # for prompt in prompt_list:
@@ -168,24 +168,3 @@ def main() -> None:
     # #     remain = int(np.argmax(mask + logits))
     # #     generated.append(remain)
 
-    # for target_id in prefix_ids:
-    #     step_logits = np.array(model.get_logits_from_input_ids(generated))
-    #     step = step_logits.flatten().tolist()
-    #     vo = step.index(max(step_logits))
-    #     # print(f"INDEX of Most high proba: {vo}")
-    #     mask = np.full_like(step_logits, -np.inf)
-    #     mask[target_id] = 0.0
-    #     chosen = int(np.argmax(step_logits + mask))
-    #     # print(chosen)
-    #     # print(step_logits)
-    #     # print(f"MODEL WANTED: {[k for k, v in vocab.items() if v == vo]}")
-    #     # print(f"FORCED: {[k for k, v in vocab.items() if v == chosen]}")
-    #     generated.append(chosen)
-
-    # for name in function_names:
-    #     ids = get_allowed_ids(name, vocab)
-    #     print(f"{name}: {len(ids)}個の合法な第一歩")
-    #     for tid in ids:
-    #         print(f"   {tid:6d} {model.decode([tid])!r}")
-
-main()
