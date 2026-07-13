@@ -1,4 +1,4 @@
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
 from typing import Literal
 
 
@@ -17,10 +17,18 @@ class ParameterSchema(BaseModel):
     type: Literal["number", "string", "boolean"]
 
 
-class FunctionDifinition(BaseModel):
+class FunctionDefinition(BaseModel):
     name: str
     description: str
     parameters: dict[str, ParameterSchema]
+    # required_para: dict[str, ParameterSchema]
     returns: ParameterSchema
 
-
+    # # TODO Need to make this validator dynamic, test eventually
+    # @model_validator(mode="after")
+    # def param_cocrdinate(self) -> "FunctionDifinition":
+    #     parameters = sorted(self.parameters.items(), key=lambda x: x[0])
+    #     required = sorted(self.required_para.items(), key=lambda x: x[0])
+    #     if parameters != required:
+    #         raise ValueError("Unmatching parameters")
+    #     return self

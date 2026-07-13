@@ -1,6 +1,6 @@
 import json
 from pydantic import ValidationError
-from model import PromptWrite, FunctionDifinition
+from model import PromptWrite, FunctionDefinition
 
 
 class ParserError(Exception):
@@ -17,7 +17,7 @@ class InputFileError(ParserError):
 
 
 class InputSchemaError(ParserError):
-    def __init__(self, path: str, original) -> None:
+    def __init__(self, path: str, original: ValidationError | str) -> None:
         self.path = path
         self.original = original
         super().__init__(f"Schema mismatch {original}: {path}")
@@ -26,7 +26,7 @@ class InputSchemaError(ParserError):
 class InputFormatError(ParserError):
     def __init__(self, path: str, original: json.JSONDecodeError) -> None:
         self.path = path
-        self.original_msg = original
+        self.original = original
         super().__init__(
             f"Invalid JSON {path}: {original.msg} "
             f"(line {original.lineno}, "
@@ -54,23 +54,28 @@ def _load_json(path: str) -> list:
 class Parser:
     def __init__(self, prompt_path: str, func_path: str) -> None:
         self.prompt_list: list[PromptWrite] = self._parse_prompt(prompt_path)
-        self.func_list: list[FunctionDifinition] = self._parse_func(func_path)
+        self.func_list: list[FunctionDefinition] = self._parse_func(func_path)
 
     def _parse_prompt(self, path: str) -> list[PromptWrite]:
         raw = _load_json(path)
         try:
-            # for entry in raw:
-            #     print(entry)
             return [PromptWrite(**entry) for entry in raw]
-        except ValidationError as e:
-            raise InputSchemaError(path, e) from e
+        except (ValidationError, TypeError) as e:
+            raise InputSchemaError(path, f"Unexpected prompt type/form - {e}") from e
 
-    def _parse_func(self, path: str) -> list[FunctionDifinition]:
+    def _parse_func(self, path: str) -> list[FunctionDefinition]:
         raw = _load_json(path)
         try:
-            return [FunctionDifinition(**entry) for entry in raw]
-        except ValidationError as e:
-            raise InputSchemaError(path, e) from e
+            return [FunctionDefinition(**entry) for entry in raw]
+        except (ValidationError, TypeError) as e:
+            raise InputSchemaError(path, f"Unexpected function type/form - {e}") from e
 
 
 # Parser("/home/tkunugi/sgoinfre/CallMeMaybe/data/input/function_calling_tests.json", "/home/tkunugi/sgoinfre/CallMeMaybe/data/input/functions_definition.json")
+if __name__ == "__main__":
+    import sys
+    # parser = Parser(sys.argv[1], sys.argv[2])
+    parser = Parser("/home/tkunugi/sgoinfre/CallMeMaybe/data/input/function_calling_tests.json", "/home/tkunugi/sgoinfre/CallMeMaybe/data/input/functions_definition.json")
+    print(f"{len(parser.prompt_list)} prompts, {len(parser.func_list)} functions loaded")
+    # for p in parser.prompt_list:
+    #     print(p)
