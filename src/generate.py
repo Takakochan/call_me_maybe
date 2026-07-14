@@ -5,7 +5,7 @@ import time
 from llm_sdk.llm_sdk import Small_LLM_Model
 from parser import Parser
 
-from model import FunctionDefinition, PromptWrite
+from model import FunctionDefinition, ParameterSchema
 
 
 def get_allowed_ids(remaining: str, vocab: dict[str, int]) -> list[int]:
@@ -113,14 +113,21 @@ def generate_parameter(
         vocab: dict[str, int],
         id_to_token: dict[int, str]
 ) -> list[str]:
-    para_prefix = 'parameters": {"'
+    para = 'parameters: { '
     para_after = '": '
     mult_para = ', "'
     end_para = '}'
 
     param_dic = [element.parameters for element in funcs if element.name == chosen_func]
-    prompt_parameter = 'function:' + chosen_func + str(len(param_dic[0])) + para_prefix
-    
+    for param in param_dic:
+        param_prefix_dic = {k: v.type for k, v in param.items()}
+        print(f"Dck: {param_prefix_dic}")
+
+    np_param_prefix = np.array(list(param_prefix_dic.items()))
+    print(np_param_prefix)
+    print(np_param_prefix[0, 1])
+    prompt_parameter = 'function: ' + chosen_func + '\n' + str(len(param_dic[0])) + ' ' + para + ' ' + np_param_prefix[0, 1]
+    print(prompt_parameter)
     generated = model.encode(prompt_parameter).flatten().tolist()
     li_user_prompt = user_prompt.split()
     candidate = {word.replace('?', ''): word.replace('?', '') for word in li_user_prompt if word}
@@ -128,6 +135,7 @@ def generate_parameter(
     print()
     print(f"Cndidates: {candidate}")
     chosen_param: list = []
+    count = 0
     while len(chosen_param) < len(param_dic[0]):
         # print(candidate)
         if not candidate:
@@ -148,9 +156,10 @@ def generate_parameter(
                 chosen_param.append(name)
                 candidate = copy_candidate
                 del candidate[name]
-                ids = model.encode("and ").flatten().tolist()
+                another_prefix = ' ' + np_param_prefix[0, 1][count]
+                ids = model.encode(another_prefix).flatten().tolist()
                 generated.extend(ids)
-
+        count += 1
 
     print(f"Chosen param: {chosen_param}")
     return chosen_param
