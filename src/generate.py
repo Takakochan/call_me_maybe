@@ -61,6 +61,100 @@ def build_dynamic_prompt(prompt: str, definitions: list[FunctionDefinition]) -> 
     )
 
 
+# def generate_parameter(
+#         user_prompt: str,
+#         chosen_func: str,
+#         funcs: list[FunctionDefinition],
+#         model: Small_LLM_Model,
+#         vocab: dict[str, int],
+#         id_to_token: dict[int, str]
+# ) -> list[str]:
+
+#     param_dic = [element.parameters for element in funcs if element.name == chosen_func]
+#     prompt_parameter = 'function:' + chosen_func + str(len(param_dic[0])) + '"parameters": {"'
+    
+#     generated = model.encode(prompt_parameter).flatten().tolist()
+#     li_user_prompt = user_prompt.split()
+#     candidate = {word.replace('?', ''): word.replace('?', '') for word in li_user_prompt if word}
+#     print()
+#     print(f"Cndidates: {candidate}")
+#     chosen_param: list = []
+#     while len(chosen_param) < len(param_dic[0]):
+#         para_prefix = 'parameters": {"'
+#         para_after = '": '
+#         mult_para = ', "'
+#         end_para = '}'
+#         print(candidate)
+#         if not candidate:
+#             raise RuntimeError("At function Generate_parameter All candidate eliminated - logic bug or invalid input")
+#         allowed_ids = get_union_allowed_ids(candidate, vocab)
+#         logits_np = np.array(model.get_logits_from_input_ids(generated))
+#         mask = np.full_like(logits_np, -np.inf)
+#         mask[allowed_ids] = 0.0
+#         chosen = int(np.argmax(logits_np + mask))
+#         generated.append(chosen)
+#         chosen_str = id_to_token[chosen]
+#         # print(f"Chosen_str: {chosen_str}")
+#         chosen_param.append(chosen_str)
+
+#         # candidate = update_candidates(candidate, chosen_str)
+#         # for name, remaining in candidate.items():
+#         #     if remaining == "":
+#         #         chosen_param.append(name)
+#     print(f"Chosen param: {chosen_param}")
+#     return chosen_param
+
+#test1
+def generate_parameter(
+        user_prompt: str,
+        chosen_func: str,
+        funcs: list[FunctionDefinition],
+        model: Small_LLM_Model,
+        vocab: dict[str, int],
+        id_to_token: dict[int, str]
+) -> list[str]:
+    para_prefix = 'parameters": {"'
+    para_after = '": '
+    mult_para = ', "'
+    end_para = '}'
+
+    param_dic = [element.parameters for element in funcs if element.name == chosen_func]
+    prompt_parameter = 'function:' + chosen_func + str(len(param_dic[0])) + para_prefix
+    
+    generated = model.encode(prompt_parameter).flatten().tolist()
+    li_user_prompt = user_prompt.split()
+    candidate = {word.replace('?', ''): word.replace('?', '') for word in li_user_prompt if word}
+    copy_candidate = candidate
+    print()
+    print(f"Cndidates: {candidate}")
+    chosen_param: list = []
+    while len(chosen_param) < len(param_dic[0]):
+        # print(candidate)
+        if not candidate:
+            raise RuntimeError("At function Generate_parameter All candidate eliminated - logic bug or invalid input")
+        allowed_ids = get_union_allowed_ids(candidate, vocab)
+        # print(generated)
+        logits_np = np.array(model.get_logits_from_input_ids(generated))
+        mask = np.full_like(logits_np, -np.inf)
+        mask[allowed_ids] = 0.0
+        chosen = int(np.argmax(logits_np + mask))
+        generated.append(chosen)
+        # print(f"Generated: {generated}")
+        chosen_str = id_to_token[chosen]
+        print(f"Chosen_str: {chosen_str}")
+        candidate = update_candidates(candidate, chosen_str)
+        for name, remaining in candidate.items():
+            if remaining == "":
+                chosen_param.append(name)
+                candidate = copy_candidate
+                del candidate[name]
+                ids = model.encode("and ").flatten().tolist()
+                generated.extend(ids)
+
+
+    print(f"Chosen param: {chosen_param}")
+    return chosen_param
+
 def generate_function_call(
     user_prompt: str,
     funcs: list[FunctionDefinition],
@@ -95,8 +189,15 @@ def generate_function_call(
         for name, remaining in candidates.items():
             if remaining == "":
                 chosen_function = name
-    print(f"Chosen function: {chosen_function}")
-
+    # print(f"Chosen function: {chosen_function}")
+    generate_parameter(
+        user_prompt,
+        chosen_function,
+        funcs,
+        model,
+        vocab,
+        id_to_token
+    )
     return chosen_function
 
 
