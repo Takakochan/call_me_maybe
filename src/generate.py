@@ -70,13 +70,12 @@ def generate_function_call(
 ) -> str:
     """1プロンプト分の生成パイプライン。選ばれた関数名を返す."""
     full_prompt = build_dynamic_prompt(user_prompt, funcs)
-    print(full_prompt)
+    # print(full_prompt)
     generated = model.encode(full_prompt).flatten().tolist()
     prefix = '{"name": "'
     prefix_ids = model.encode(prefix).flatten().tolist()
     generated.extend(prefix_ids)
-    candidates = {f.name: f.name for f in funcs}  # ← "fn_"消化はしない
-    # 5. whileループ（安全網つき、logitsにはgeneratedを渡す）
+    candidates = {f.name: f.name for f in funcs}
     chosen_function = None
     while chosen_function is None:
         if not candidates:
@@ -90,7 +89,7 @@ def generate_function_call(
         generated.append(chosen)
         # print(generated)
         chosen_str = id_to_token[chosen]
-        print(f"Model picked \n Logit ID: {chosen} \n Logit Token: {chosen_str}")
+        # print(f"Model picked \n Logit ID: {chosen} \n Logit Token: {chosen_str}")
         candidates = update_candidates(candidates, chosen_str)
         # print(f"Model Chose: {chosen_str!r}, Remaining func names{candidates}")
         for name, remaining in candidates.items():
@@ -99,6 +98,7 @@ def generate_function_call(
     print(f"Chosen function: {chosen_function}")
 
     return chosen_function
+
 
 
 # def main() -> None:

@@ -19,15 +19,15 @@ def main() -> None:
         vocab = json.load(f)
     id_to_token = vocab_id_to_token(vocab)
     for user_prompt in prompts:
+        print()
         print(user_prompt)
-        string = generate_function_call(
+        chosen_func = generate_function_call(
             user_prompt.prompt,
             funcs,
             model,
             vocab,
             id_to_token
         )
-        print()
     end = time.time()
     print(end - start)
 
