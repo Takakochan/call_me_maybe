@@ -3,33 +3,36 @@ import time
 
 from llm_sdk.llm_sdk import Small_LLM_Model
 from parser import Parser
-from generate import vocab_id_to_token, generate_function_call
-
+from generate import engine
 
 def main() -> None:
     """モデルと語彙を準備して get_allowed_ids を試す."""
     start = time.time()
-    model = Small_LLM_Model()
     #parser = Parser(sys.argv[1], sys.argv[2])
     parser = Parser("/home/tkunugi/sgoinfre/CallMeMaybe/data/input/function_calling_tests.json", "/home/tkunugi/sgoinfre/CallMeMaybe/data/input/functions_definition.json")
-    prompts = parser.prompt_list
-    funcs = parser.func_list
-    vocab_path = model.get_path_to_vocab_file()
-    with open(vocab_path, "r", encoding="utf-8") as f:
-        vocab = json.load(f)
-    id_to_token = vocab_id_to_token(vocab)
-    for user_prompt in prompts:
-        print()
-        print(user_prompt)
-        chosen_func = generate_function_call(
-            user_prompt.prompt,
-            funcs,
-            model,
-            vocab,
-            id_to_token
-        )
+    model = Small_LLM_Model()
+    engine(parser, model)
+    
     end = time.time()
     print(end - start)
+    # prompts = parser.prompt_list
+    # funcs = parser.func_list
+    # vocab_path = model.get_path_to_vocab_file()
+    # with open(vocab_path, "r", encoding="utf-8") as f:
+    #     vocab = json.load(f)
+    # id_to_token = vocab_id_to_token(vocab)
+    # for user_prompt in prompts:
+    #     print()
+    #     print(user_prompt)
+    #     chosen_func = generate_function_call(
+    #         user_prompt.prompt,
+    #         funcs,
+    #         model,
+    #         vocab,
+    #         id_to_token
+    #     )
+    # end = time.time()
+    # print(end - start)
 
 
     # chosen_func = None

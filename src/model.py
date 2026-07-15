@@ -32,3 +32,6 @@ class FunctionDefinition(BaseModel):
     #     if parameters != required:
     #         raise ValueError("Unmatching parameters")
     #     return self
+
+
+# cleass EachCaseInfo(BaseModel)
