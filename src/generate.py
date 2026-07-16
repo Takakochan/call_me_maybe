@@ -156,9 +156,9 @@ def generate_parameter(
     ALL_IDS = [t_id for token, t_id in vocab.items() if token != vocab[","] and token != vocab["}"] and not token.isdigit()]
     # generated_parameter = None
     prompt = (
-            f"'prompt': {user_prompt}\n" 
-            f"'function': {chosen_func}\n"
-            "'parameters': {"
+            '"prompt": ' + user_prompt + '\n' +
+            '"function": ' + chosen_func + '\n' +
+            '"parameters": {'
     )
     words = []
     for i in range(len(param_type_list)):
@@ -166,7 +166,7 @@ def generate_parameter(
         if param_type == "number":
             # print(f"Param_type {param_type}")
             # print(f"Param_name {param_name}")
-            prompt = prompt + "'" + param_name[i] + "': "
+            prompt = prompt + '"' + param_name[i] + '": '
             value = ""
             # print(f"Prompt: {prompt}")
             generated = model.encode(prompt).flatten().tolist()
@@ -193,7 +193,7 @@ def generate_parameter(
 
 
         elif param_type == "string":
-            prompt = prompt + "'" + param_name[i] + "': "
+            prompt = prompt + '"' + param_name[i] + '":'
             value = ""
             # print(f"Prompt: {prompt}")
             generated = model.encode(prompt).flatten().tolist()
@@ -208,8 +208,8 @@ def generate_parameter(
                 # chosen_tok = id_to_token[chosen]
                 chosen_tok = model.decode(chosen)
                 # print(f"+++++++++{chosen_tok}")
-                if chosen_tok.startswith("'"):
-                    value += "'"
+                if chosen_tok.startswith('"'):
+                    value += '"'
                     break    # ← 終端はvalueにもgeneratedにも入れない（後述）
                 value += chosen_tok    # 桁を積む
                 generated.append(chosen)
@@ -218,7 +218,7 @@ def generate_parameter(
                     raise RuntimeError(f"Runaway number generation: {value!r}")
             words.append(value)
             # print(f"WORDs: {words}")
-            prompt = f"{prompt}{value}' "
+            prompt = prompt + value + ", "
     
     prompt = prompt[:-2] + "}"
     print(prompt)
