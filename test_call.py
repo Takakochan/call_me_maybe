@@ -78,3 +78,62 @@ for target_id in prefix_ids:
           f"Model's fav: {model.decode([int(torch.argmax(step_logits))])!r})")
     
 print(model.decode(generated[len(token_ids):]))
+
+
+
+
+#test1
+# def get_parameter(
+#         user_prompt: str,
+#         chosen_func: str,
+#         funcs: list[FunctionDefinition],
+#         model: Small_LLM_Model,
+#         vocab: dict[str, int],
+#         id_to_token: dict[int, str]
+# ) -> list[str]:
+#     para = 'parameters: { '
+#     para_after = '": '
+#     mult_para = ', "'
+#     end_para = '}'
+
+#     param_dic = [element.parameters for element in funcs if element.name == chosen_func]
+#     for param in param_dic:
+#         param_prefix_dic = {k: v.type for k, v in param.items()}
+#         print(f"Dck: {param_prefix_dic}")
+
+#     param_prefix = list(param_prefix_dic.values())
+#     # print(param_prefix)
+#     prompt_parameter = 'function: ' + chosen_func + '\n' + str(len(param_dic)) + '\n' + para + ' ' + list(param_prefix_dic.keys())[0] + ' write in ' + list(param_prefix_dic.values())[0]
+#     # print(prompt_parameter)
+#     generated = model.encode(prompt_parameter).flatten().tolist()
+#     li_user_prompt = user_prompt.split()
+#     candidate = {word.replace('?', ''): word.replace('?', '') for word in li_user_prompt if word}
+#     copy_candidate = candidate
+#     print()
+#     print(f"Cndidates: {candidate}")
+#     chosen_param: list = []
+#     while len(chosen_param) < len(param_dic[0]):
+#         # print(candidate)
+#         if not candidate:
+#             raise RuntimeError("At function Generate_parameter All candidate eliminated - logic bug or invalid input")
+#         allowed_ids = get_union_allowed_ids(candidate, vocab)
+#         # print(generated)
+#         logits_np = np.array(model.get_logits_from_input_ids(generated))
+#         mask = np.full_like(logits_np, -np.inf)
+#         mask[allowed_ids] = 0.0
+#         chosen = int(np.argmax(logits_np + mask))
+#         generated.append(chosen)
+#         # print(f"Generated: {generated}")
+#         chosen_str = id_to_token[chosen]
+#         # print(f"Chosen_str: {chosen_str}")
+#         candidate = update_candidates(candidate, chosen_str)
+#         for name, remaining in candidate.items():
+#             if remaining == "":
+#                 candidate = copy_candidate
+#                 del candidate[name]
+#                 another_prefix = ' ' + ' pic another parameter ' + param_prefix[len(chosen_param)] 
+#                 ids = model.encode(another_prefix).flatten().tolist()
+#                 generated.extend(ids)
+#                 chosen_param.append(name)
+#     print(f"Chosen param: {chosen_param}")
+#     return chosen_param

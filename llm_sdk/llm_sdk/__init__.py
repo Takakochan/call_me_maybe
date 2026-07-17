@@ -5,13 +5,7 @@ import time
 from typing import Tuple
 
 import torch
-from transformers import (
-    AutoModelForCausalLM,
-    AutoTokenizer,
-    PreTrainedTokenizer,
-    PreTrainedModel,
-    logging,
-)
+from transformers import AutoModelForCausalLM, AutoTokenizer, PreTrainedTokenizer, PreTrainedModel, logging
 from huggingface_hub import hf_hub_download
 import os
 
@@ -79,16 +73,19 @@ class Small_LLM_Model:
         for p in self._model.parameters():
             p.requires_grad = False
 
+
     def encode(self, text: str) -> torch.Tensor:
         """Tokenise *text* and return a 2-D ``input_ids`` tensor on the target device."""
         ids = self._tokenizer.encode(text, add_special_tokens=False)
         return torch.tensor([ids], device=self._device, dtype=torch.long)
+
 
     def decode(self, ids: torch.Tensor | list[int]) -> str:
         """Inverse of :py:meth:`encode`. Removes special tokens."""
         if isinstance(ids, torch.Tensor):
             ids = ids.tolist()
         return self._tokenizer.decode(ids, skip_special_tokens=True)
+
 
     def get_logits_from_input_ids(self, input_ids: list[int]) -> list[float]:
         """
@@ -101,27 +98,29 @@ class Small_LLM_Model:
         logits = out.logits[0, -1].tolist()
         return [float(x) for x in logits]
 
+
     def get_path_to_vocab_file(self) -> str:
-        vocab_file_name = self._tokenizer.vocab_files_names.get(
-            "vocab_file", "vocab.json"
+        vocab_file_name = self._tokenizer.vocab_files_names.get('vocab_file', "vocab.json")
+        vocab_path = hf_hub_download(
+            repo_id=self._model_name,
+            filename=vocab_file_name
         )
-        vocab_path = hf_hub_download(repo_id=self._model_name, filename=vocab_file_name)
         return vocab_path
 
+
     def get_path_to_merges_file(self) -> str:
-        merges_file_name = self._tokenizer.vocab_files_names.get(
-            "merges_file", "merges.txt"
-        )
+        merges_file_name = self._tokenizer.vocab_files_names.get('merges_file', "merges.txt")
         merges_path = hf_hub_download(
-            repo_id=self._model_name, filename=merges_file_name
+            repo_id=self._model_name,
+            filename=merges_file_name
         )
         return merges_path
 
+
     def get_path_to_tokenizer_file(self) -> str:
-        tokenizer_file_name = self._tokenizer.vocab_files_names.get(
-            "tokenizer_file", "tokenizer.json"
-        )
+        tokenizer_file_name = self._tokenizer.vocab_files_names.get('tokenizer_file', "tokenizer.json")
         tokenizer_path = hf_hub_download(
-            repo_id=self._model_name, filename=tokenizer_file_name
+            repo_id=self._model_name,
+            filename=tokenizer_file_name
         )
         return tokenizer_path

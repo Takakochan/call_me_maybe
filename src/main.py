@@ -11,6 +11,7 @@ def main() -> None:
     #parser = Parser(sys.argv[1], sys.argv[2])
     parser = Parser("/home/tkunugi/sgoinfre/CallMeMaybe/data/input/function_calling_tests.json", "/home/tkunugi/sgoinfre/CallMeMaybe/data/input/functions_definition.json")
     model = Small_LLM_Model()
+    # model = Small_LLM_Model(model_name="Qwen/Qwen3-1.7B")
     engine(parser, model)
     
     end = time.time()

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Literal
 
 
@@ -34,4 +34,7 @@ class FunctionDefinition(BaseModel):
     #     return self
 
 
-# cleass EachCaseInfo(BaseModel)
+class ParameterFetch(BaseModel):
+    prompt: str = ""
+    name: str = ""
+    parameters: dict[str, str] = Field(default_factory=dict)
