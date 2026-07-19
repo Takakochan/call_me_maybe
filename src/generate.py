@@ -1,10 +1,17 @@
 import json
 import numpy as np
 import re
+from typing import Any
+import argparse
 
 from llm_sdk.llm_sdk import Small_LLM_Model
 from .parser import Parser
 from .model import FunctionDefinition, ParameterFetch
+
+
+def vprint(to_print: str, verbose: argparse.Namespace) -> None:
+    if verbose:
+        print(to_print)
 
 
 def get_allowed_ids(remaining: str, vocab: dict[str, int]) -> list[int]:
@@ -100,6 +107,7 @@ def generate_parameter(
     model: Small_LLM_Model,
     vocab: dict[str, int],
     id_to_token: dict[int, str],
+    verbose: argparse.Namespace,
 ) -> str:
     # print(f"param_list : {param_type_list}")
     # print(f"Parameter_name is : {param_name}")
@@ -139,11 +147,13 @@ def generate_parameter(
         param_type = param_type_list[i]
         parameter_title = param_name[i]
         if param_type == "number":
-            # print(f"Param_type {param_type}")
-            # print(f"Param_name {param_name}")
+            
             prompt = prompt + '"' + parameter_title + '": '
             value = ""
-            # print(f"Prompt: {prompt}")
+            if verbose:
+                print(f"Param_type {param_type}")
+                print(f"Param_name {param_name}")
+                print(f"Prompt: {prompt}")
             generated = model.encode(prompt).flatten().tolist()
             while True:
                 allowed_ids = (
@@ -171,7 +181,8 @@ def generate_parameter(
         elif param_type == "string":
             prompt = prompt + '"' + parameter_title + '": "'
             value = ""
-            # print(f"Prompt: {prompt}")
+            
+            vprint(f"Prompt: {prompt}", verbose)
             generated = model.encode(prompt).flatten().tolist()
             while True:
                 allowed_ids = (
@@ -185,13 +196,13 @@ def generate_parameter(
                     allowed_ids,
                     discouraged_ids
                 )
-                # chosen_tok = id_to_token[chosen]
                 chosen_tok = model.decode(chosen)
+                
+                vprint(f"Chosen token:=={chosen_tok}==", verbose)
                 if not value:
                     chosen_tok = chosen_tok.lstrip(" ")
                     chosen_tok = chosen_tok.rstrip(",")
-                # print(f"=={chosen_tok}==")
-                # print(f"+++++++++{chosen_tok}")
+
                 if '"' in chosen_tok:
                     prefix = chosen_tok.split('"')[0]
                     value += prefix
@@ -199,9 +210,11 @@ def generate_parameter(
                 if "," in chosen_tok:
                     break
                 value += chosen_tok
-                # print(f"======Value: {value}")
+                
+                vprint(f"Built Value:=={value}==", verbose)
                 generated.append(chosen)
-                # print(f"Value: {value}")
+                
+                vprint(f"Completed Value: {value}", verbose)
                 if len(value) > 60:
                     raise RuntimeError(f"Runaway number generation: {value!r}")
             param_fetch_dict.parameters[parameter_title] = value
@@ -220,10 +233,13 @@ def generate_function_call(
     model: Small_LLM_Model,
     vocab: dict[str, int],
     id_to_token: dict[int, str],
+    verbose: argparse.Namespace
+    
 ) -> str:
     """1プロンプト分の生成パイプライン。選ばれた関数名を返す."""
     full_prompt = build_dynamic_prompt(user_prompt, funcs)
-    # print(full_prompt)
+    vprint('', verbose)
+    vprint(f"Dynamic prompt: {full_prompt}", verbose)
     generated = model.encode(full_prompt).flatten().tolist()
     prefix = '{"name": "'
     prefix_ids = model.encode(prefix).flatten().tolist()
@@ -240,33 +256,40 @@ def generate_function_call(
         chosen = masked_argmax(model, generated, allowed_ids, discouraged_ids)
 
         generated.append(chosen)
-        # print(generated)
+        vprint(generated, verbose)
         chosen_str = id_to_token[chosen]
-        # print(f"ModelPicked Logit ID: {chosen} \n Logit Token: {chosen_str}")
+        vprint(f"ModelPicked Logit ID: {chosen} \n Logit Token: {chosen_str}", verbose)
         candidates = update_candidates(candidates, chosen_str)
-        # print(f"ModelChose: {chosen_str!r}, Remaining func name{candidates}")
+        vprint(f"ModelChose: {chosen_str!r}, Remaining func name{candidates}", verbose)
         for name, remaining in candidates.items():
             if remaining == "":
                 chosen_function = name
-    # print(f"Chosen function: {chosen_function}")
+    vprint(f"Chosen function: {chosen_function}", verbose)
     return chosen_function
 
 
-def engine(parser: Parser, model: Small_LLM_Model) -> list[dict]:
+def engine(
+    parser: Parser,
+    model: Small_LLM_Model,
+    vocab: Any,
+    verbose: argparse.Namespace
+) -> list[dict]:
     prompts = parser.prompt_list
     funcs = parser.func_list
-    vocab_path = model.get_path_to_vocab_file()
-    with open(vocab_path, "r", encoding="utf-8") as f:
-        vocab = json.load(f)
     id_to_token = vocab_id_to_token(vocab)
     answer_list: list[dict] = []
     for user_prompt in prompts:
-        # print()
-        # print(user_prompt)
+        if verbose:
+            print(f"User prompt: {user_prompt}")
         param_fetch_dict = ParameterFetch()
         param_fetch_dict.prompt = user_prompt.prompt
         chosen_func = generate_function_call(
-            user_prompt.prompt, funcs, model, vocab, id_to_token
+            user_prompt.prompt,
+            funcs,
+            model,
+            vocab,
+            id_to_token,
+            verbose
         )
         param_fetch_dict.name = chosen_func
         parameter_type_list = get_parameter_type_list(chosen_func, funcs)
@@ -277,13 +300,13 @@ def engine(parser: Parser, model: Small_LLM_Model) -> list[dict]:
             user_prompt.prompt,
             chosen_func,
             parameter_type_list,
-            # param_type,
             param_name,
             model,
             vocab,
             id_to_token,
+            verbose
         )
         answer_list.append(param_fetch_dict.model_dump())
-        print(param_fetch_dict.model_dump_json(indent=2))
+        # print(param_fetch_dict.model_dump_json(indent=2))
 
     return answer_list

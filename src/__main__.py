@@ -3,6 +3,7 @@ import time
 import os
 import argparse
 import sys
+from typing import Any
 
 from llm_sdk.llm_sdk import Small_LLM_Model
 from .parser import Parser, ParserError
@@ -28,7 +29,34 @@ def parse_args() -> argparse.Namespace:
         default="data/output/function_calling_results.json",
         help="Path to write the results JSON.",
     )
+    parser.add_argument(
+        "--model",
+        default="Qwen/Qwen3-0.6B",
+        help="Model name (default: Qwen/Qwen3-0.6B).",
+    )
+    parser.add_argument(
+        "--verbose", "-v",
+        action="store_true",
+        help="Show diagnostic output during generation.",
+    )
+
     return parser.parse_args()
+
+
+def introduction_model(
+        args: argparse.Namespace,
+        model: Small_LLM_Model,
+        parser: Parser,
+        vocab: Any
+) -> None:
+    print("=" * 50, file=sys.stderr)
+    print(f"Model:            {args.model}", file=sys.stderr)
+    print(f"Vocabulary size:  {len(vocab):,}", file=sys.stderr)
+    print(f"Vocab file:       {model.get_path_to_vocab_file()}", file=sys.stderr)
+    print(f"Merges file:      {model.get_path_to_merges_file()}", file=sys.stderr)  # ← 新規
+    # print(f"Functions loaded: {len(parser.functions)}", file=sys.stderr)
+    # print(f"Prompts to process: {len(parser.prompts)}", file=sys.stderr)
+    print("=" * 50, file=sys.stderr)
 
 
 def main() -> None:
@@ -38,12 +66,17 @@ def main() -> None:
     parser = Parser(args.functions_definition, args.input)
     output_path = args.output
     model = Small_LLM_Model()
+    print(model)
+    vocab_path = model.get_path_to_vocab_file()
+    with open(vocab_path, "r", encoding="utf-8") as f:
+        vocab = json.load(f)
     # model = Small_LLM_Model(model_name="Qwen/Qwen3-1.7B")
-
+    if args.verbose:
+        introduction_model(args, model, parser, vocab)
     out_dir = os.path.dirname(output_path)
     if out_dir:
         os.makedirs(out_dir, exist_ok=True)
-    out_put = engine(parser, model)
+    out_put = engine(parser, model, vocab, verbose=args.verbose)
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(out_put, f, indent=2, ensure_ascii=False)
     end = time.time()
