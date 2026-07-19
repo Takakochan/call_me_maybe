@@ -1,6 +1,5 @@
 import json
 import numpy as np
-import time
 import re
 
 from llm_sdk.llm_sdk import Small_LLM_Model
@@ -40,7 +39,9 @@ def get_union_allowed_ids(
     return list(unioned_ids)
 
 
-def update_candidates(candidates: dict[str, str], chosen_str: str) -> dict[str, str]:
+def update_candidates(
+        candidates: dict[str, str], chosen_str: str
+) -> dict[str, str]:
     """chosen_strで始まる候補だけ残し、そのぶん削った新しい辞書を返す."""
     return {
         name: remaining[len(chosen_str):]
@@ -53,7 +54,9 @@ def vocab_id_to_token(vocab: dict) -> dict[int, str]:
     return {v: key for key, v in vocab.items()}
 
 
-def build_dynamic_prompt(prompt: str, definitions: list[FunctionDefinition]) -> str:
+def build_dynamic_prompt(
+        prompt: str, definitions: list[FunctionDefinition]
+) -> str:
     lines = [f"- {d.name}: {d.description}" for d in definitions]
     return (
         "You translate user requests into function calls.\n"
@@ -63,11 +66,9 @@ def build_dynamic_prompt(prompt: str, definitions: list[FunctionDefinition]) -> 
 
 
 def get_parameter_type_list(
-        chosen_func: str,
-        funcs: list[FunctionDefinition]
+    chosen_func: str, funcs: list[FunctionDefinition]
 ) -> list[str]:
-    """returns like '"a": ', eventually need to use replace("'", '"')
-    """
+    """returns like '"a": ', eventually need to use replace("'", '"')"""
     intro_list = []
     for func in funcs:
         if func.name != chosen_func:
@@ -82,106 +83,133 @@ def masked_argmax(
     model: Small_LLM_Model,
     generated: list,
     allowed_ids: list[int],
-    discouraged_ids: list[int]
+    discouraged_ids: list[int],
 ) -> int:
     logits_np = np.array(model.get_logits_from_input_ids(generated))
     mask = np.full_like(logits_np, -np.inf)
     mask[allowed_ids] = 0.0
     mask[discouraged_ids] = -8.0
-    return (int(np.argmax(logits_np + mask)))
-
-
+    return int(np.argmax(logits_np + mask))
 
 
 def generate_parameter(
-        param_fetch_dict: ParameterFetch,
-        user_prompt: str,
-        chosen_func: str,
-        param_type_list: list[str],
-        param_name: list[str],
-        model: Small_LLM_Model,
-        vocab: dict[str, int],
-        id_to_token: dict[int, str]
+    param_fetch_dict: ParameterFetch,
+    user_prompt: str,
+    chosen_func: str,
+    param_type_list: list[str],
+    param_name: list[str],
+    model: Small_LLM_Model,
+    vocab: dict[str, int],
+    id_to_token: dict[int, str],
 ) -> str:
     # print(f"param_list : {param_type_list}")
     # print(f"Parameter_name is : {param_name}")
 
-
-    TERMINATOR_LIST = [vocab[","], vocab["}"]]
-    DIGITS_IDS = [t_id for token, t_id in vocab.items() if token.isdigit()]
-    # ALL_IDS = [t_id for token, t_id in vocab.items() if re.fullmatch(r"[A-Za-z\s]+", token)]
-    ALL_IDS = [t_id for token, t_id in vocab.items() if token != vocab[","] and token != vocab["}"] and not token.isdigit()]
+    TERMINATOR_LIST = [
+        vocab[","], vocab["}"]
+    ]
+    DIGITS_IDS = [
+        t_id for token,
+        t_id in vocab.items()
+        if token.isdigit()
+    ]
+    ALL_IDS = [
+        t_id
+        for token, t_id in vocab.items()
+        if token != vocab[","] and token != vocab["}"] and not token.isdigit()
+    ]
     # generated_parameter = None
     prompt = (
-            '"prompt": ' + user_prompt + '\n' +
-            '"function": ' + chosen_func + '\n' +
-            '"parameters": {'
+        '"prompt": '
+        + user_prompt
+        + "\n"
+        + '"function": '
+        + chosen_func
+        + "\n"
+        + '"parameters": {'
     )
+    if bool(re.search(r"\b[A-Z]+\b", user_prompt)):
+        prompt = (
+            "When only a value is capital letter and plural, "
+            + "spell it out completely, including the final 's'.\n"
+            + 'Example: \'with CATS\' -> replacement: "CATS" (not "CAT")\n'
+            + prompt
+        )
     words = []
     for i in range(len(param_type_list)):
         param_type = param_type_list[i]
+        parameter_title = param_name[i]
         if param_type == "number":
             # print(f"Param_type {param_type}")
             # print(f"Param_name {param_name}")
-            prompt = prompt + '"' + param_name[i] + '": '
+            prompt = prompt + '"' + parameter_title + '": '
             value = ""
             # print(f"Prompt: {prompt}")
             generated = model.encode(prompt).flatten().tolist()
             while True:
-                # 初手は終端禁止（空の値の地雷）、2手目以降は「終わる」も選択肢
-                
-                allowed_ids = DIGITS_IDS if not value else DIGITS_IDS + TERMINATOR_LIST
+                allowed_ids = (
+                    DIGITS_IDS if not value else DIGITS_IDS + TERMINATOR_LIST
+                )
                 discouraged_ids: list[int] = []
-                chosen = masked_argmax(model, generated, allowed_ids, discouraged_ids)
+                chosen = masked_argmax(
+                    model,
+                    generated,
+                    allowed_ids,
+                    discouraged_ids
+                )
                 chosen_tok = id_to_token[chosen]
                 if chosen in TERMINATOR_LIST:
-                    break    # ← 終端はvalueにもgeneratedにも入れない（後述）
-                value += chosen_tok    # 桁を積む
+                    break
+                value += chosen_tok  # 桁を積む
                 generated.append(chosen)
                 # print(f"Value: {value}")
-                if len(value) > 15:            # 暴走ガード
+                if len(value) > 15:
                     raise RuntimeError(f"Runaway number generation: {value!r}")
-            param_fetch_dict.parameters[param_name[i]] = float(value)
+            param_fetch_dict.parameters[parameter_title] = float(value)
             # print(f"WORDs: {words}")
             prompt = f"{prompt}{value}, "
 
-
         elif param_type == "string":
-            # prompt = prompt + '"' + param_name[i] + '": "'
-            if param_name[i] == "name":
-                prompt = prompt + "'" + param_name[i] + "': '"
-            else:
-                prompt = prompt + '"' + param_name[i] + '": "'
+            prompt = prompt + '"' + parameter_title + '": "'
             value = ""
             # print(f"Prompt: {prompt}")
             generated = model.encode(prompt).flatten().tolist()
             while True:
-
-                allowed_ids = ALL_IDS if not value else ALL_IDS + TERMINATOR_LIST
-                discouraged_ids = DIGITS_IDS + [vocab["X"]]
-                chosen = masked_argmax(model, generated, allowed_ids, discouraged_ids)
+                allowed_ids = (
+                    ALL_IDS if not value else ALL_IDS + TERMINATOR_LIST
+                )
+                parameter_id = get_allowed_ids(parameter_title, vocab)
+                discouraged_ids = DIGITS_IDS + parameter_id
+                chosen = masked_argmax(
+                    model,
+                    generated,
+                    allowed_ids,
+                    discouraged_ids
+                )
                 # chosen_tok = id_to_token[chosen]
                 chosen_tok = model.decode(chosen)
+                if not value:
+                    chosen_tok = chosen_tok.lstrip(" ")
+                    chosen_tok = chosen_tok.rstrip(",")
                 # print(f"=={chosen_tok}==")
                 # print(f"+++++++++{chosen_tok}")
-                if chosen_tok.endswith('"') or chosen_tok == '",' or chosen_tok == ',' or chosen_tok == '"}\n':
-                    # value += '"'
-                    break    # ← 終端はvalueにもgeneratedにも入れない（後述）
-                if param_name[i] == "name" and chosen_tok.startswith("'"):
-                    # value += "'"
+                if '"' in chosen_tok:
+                    prefix = chosen_tok.split('"')[0]
+                    value += prefix
+                    break
+                if "," in chosen_tok:
                     break
                 value += chosen_tok
-                    # 桁を積む
                 # print(f"======Value: {value}")
                 generated.append(chosen)
                 # print(f"Value: {value}")
-                if len(value) > 100:   
+                if len(value) > 60:
                     raise RuntimeError(f"Runaway number generation: {value!r}")
-            param_fetch_dict.parameters[param_name[i]] = value
+            param_fetch_dict.parameters[parameter_title] = value
             words.append(value)
             # print(f"WORDs: {words}")
             prompt = prompt + value + ", "
-    
+
     prompt = prompt[:-2] + "}"
     # print(prompt)
     return prompt
@@ -205,7 +233,9 @@ def generate_function_call(
     chosen_function = None
     while chosen_function is None:
         if not candidates:
-            raise RuntimeError("All candidates eliminated - logic bug or invalid input")
+            raise RuntimeError(
+                "All candidates eliminated - " +
+                "logic bug or invalid input")
         allowed_ids = get_union_allowed_ids(candidates, vocab)
         discouraged_ids: list[int] = []
         chosen = masked_argmax(model, generated, allowed_ids, discouraged_ids)
@@ -213,9 +243,9 @@ def generate_function_call(
         generated.append(chosen)
         # print(generated)
         chosen_str = id_to_token[chosen]
-        # print(f"Model picked \n Logit ID: {chosen} \n Logit Token: {chosen_str}")
+        # print(f"ModelPicked Logit ID: {chosen} \n Logit Token: {chosen_str}")
         candidates = update_candidates(candidates, chosen_str)
-        # print(f"Model Chose: {chosen_str!r}, Remaining func names{candidates}")
+        # print(f"ModelChose: {chosen_str!r}, Remaining func name{candidates}")
         for name, remaining in candidates.items():
             if remaining == "":
                 chosen_function = name
@@ -223,43 +253,27 @@ def generate_function_call(
     return chosen_function
 
 
-def engine(
-        parser: Parser,
-        model: Small_LLM_Model
-) -> None:
+def engine(parser: Parser, model: Small_LLM_Model) -> list[dict]:
     prompts = parser.prompt_list
     funcs = parser.func_list
     vocab_path = model.get_path_to_vocab_file()
     with open(vocab_path, "r", encoding="utf-8") as f:
         vocab = json.load(f)
     id_to_token = vocab_id_to_token(vocab)
+    answer_list: list[dict] = []
     for user_prompt in prompts:
         # print()
         # print(user_prompt)
         param_fetch_dict = ParameterFetch()
         param_fetch_dict.prompt = user_prompt.prompt
         chosen_func = generate_function_call(
-            user_prompt.prompt,
-            funcs,
-            model,
-            vocab,
-            id_to_token
+            user_prompt.prompt, funcs, model, vocab, id_to_token
         )
         param_fetch_dict.name = chosen_func
         parameter_type_list = get_parameter_type_list(chosen_func, funcs)
-
-        # print(parameter_type_list)
         func = next(d for d in funcs if d.name == chosen_func)
-        # print(f"LEN: {len(func.parameters)}")
-        # print(func.parameters)
         param_name = list(func.parameters)
-        # for name in param_name:
-        #     param_fetch_dict.parameters[name] = ""
-
-        # print(f"Param_name: {param_name}")
-        
-        # for param_type in parameter_type_list:
-        gened_parameter = generate_parameter(
+        generate_parameter(
             param_fetch_dict,
             user_prompt.prompt,
             chosen_func,
@@ -268,10 +282,9 @@ def engine(
             param_name,
             model,
             vocab,
-            id_to_token
+            id_to_token,
         )
-        print(param_fetch_dict.model_dump_json(indent=1))
+        answer_list.append(param_fetch_dict.model_dump())
+        print(param_fetch_dict.model_dump_json(indent=2))
 
-
-
-
+    return answer_list

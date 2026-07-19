@@ -1,11 +1,11 @@
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator
 from typing import Literal
 
 
 class PromptWrite(BaseModel):
     prompt: str
 
-    @field_validator('prompt')
+    @field_validator("prompt")
     @classmethod
     def is_empty(cls, prompt: str):
         if not prompt.strip():
@@ -37,4 +37,4 @@ class FunctionDefinition(BaseModel):
 class ParameterFetch(BaseModel):
     prompt: str = ""
     name: str = ""
-    parameters: dict[str, str] = Field(default_factory=dict)
+    parameters: dict[str, str | float | bool] = Field(default_factory=dict)
