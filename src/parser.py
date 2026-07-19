@@ -1,6 +1,6 @@
 import json
 from pydantic import ValidationError
-from model import PromptWrite, FunctionDefinition
+from .model import PromptWrite, FunctionDefinition
 
 
 class ParserError(Exception):
@@ -52,7 +52,7 @@ def _load_json(path: str) -> list:
 
 
 class Parser:
-    def __init__(self, prompt_path: str, func_path: str) -> None:
+    def __init__(self, func_path: str, prompt_path: str) -> None:
         self.prompt_list: list[PromptWrite] = self._parse_prompt(prompt_path)
         self.func_list: list[FunctionDefinition] = self._parse_func(func_path)
 

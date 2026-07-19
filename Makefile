@@ -1,4 +1,4 @@
-MAIN_PROGRAM := src/main.py
+MAIN_PROGRAM := src/__main__.py
 VENV         := .venv
 STAMP        := $(VENV)/.install-stamp
 

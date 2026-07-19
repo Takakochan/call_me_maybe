@@ -3,9 +3,8 @@ import numpy as np
 import re
 
 from llm_sdk.llm_sdk import Small_LLM_Model
-from parser import Parser
-
-from model import FunctionDefinition, ParameterFetch
+from .parser import Parser
+from .model import FunctionDefinition, ParameterFetch
 
 
 def get_allowed_ids(remaining: str, vocab: dict[str, int]) -> list[int]:
