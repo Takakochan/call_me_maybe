@@ -370,52 +370,58 @@ def engine(
     merge_ranks = load_merges(merges_path)
 
     for user_prompt in prompts:
-        vprint("\n====================New Request===================", verbose)
-        vprint(f"User prompt: {user_prompt}", verbose)
-        param_fetch_dict = ParameterFetch()
-        param_fetch_dict.prompt = user_prompt.prompt
-        vprint("\n========Select Function=======", verbose)
-        chosen_func = generate_function_call(
-            user_prompt.prompt,
-            funcs,
-            model,
-            vocab,
-            id_to_token,
-            verbose,
-            merge_ranks,
-        )
-
-        if not verify_function_choice(
-            user_prompt.prompt,
-            chosen_func,
-            model,
-            vocab,
-            id_to_token,
-            merge_ranks,
-            verbose,
-        ):
-            chosen_func = "fn_none"
-
-        param_fetch_dict.name = chosen_func
-
-        if chosen_func == "fn_none":
-            vprint("\n=======No matching function=======", verbose)
-        else:
-            func = next(d for d in funcs if d.name == chosen_func)
-            vprint("\n=======Generate Parameter=======", verbose)
-            generate_parameter(
-                param_fetch_dict,
+        try:  # for Bonus "Advanced error recovery try/except"
+            vprint("\n====================New Request===================", verbose)
+            vprint(f"User prompt: {user_prompt}", verbose)
+            param_fetch_dict = ParameterFetch()
+            param_fetch_dict.prompt = user_prompt.prompt
+            vprint("\n========Select Function=======", verbose)
+            chosen_func = generate_function_call(
                 user_prompt.prompt,
-                chosen_func,
-                func.parameters,
+                funcs,
                 model,
                 vocab,
                 id_to_token,
                 verbose,
                 merge_ranks,
             )
-        answer_list.append(param_fetch_dict.model_dump())
-        vprint("\n****Complete generation for the prompt****", verbose)
-        vprint(param_fetch_dict.model_dump_json(indent=2), verbose)
 
+            if not verify_function_choice(
+                user_prompt.prompt,
+                chosen_func,
+                model,
+                vocab,
+                id_to_token,
+                merge_ranks,
+                verbose,
+            ):
+                chosen_func = "fn_none"
+
+            param_fetch_dict.name = chosen_func
+
+            if chosen_func == "fn_none":
+                vprint("\n=======No matching function=======", verbose)
+            else:
+                func = next(d for d in funcs if d.name == chosen_func)
+                vprint("\n=======Generate Parameter=======", verbose)
+                generate_parameter(
+                    param_fetch_dict,
+                    user_prompt.prompt,
+                    chosen_func,
+                    func.parameters,
+                    model,
+                    vocab,
+                    id_to_token,
+                    verbose,
+                    merge_ranks,
+                )
+            answer_list.append(param_fetch_dict.model_dump())
+            vprint("\n****Complete generation for the prompt****", verbose)
+            vprint(param_fetch_dict.model_dump_json(indent=2), verbose)
+        except Exception as e:
+            vprint(f"Error for a rompt {user_prompt.prompt} - {e}", verbose)
+            answer_list.append({"prommpt": user_prompt.prompt,
+                                "name":  "fn_none",
+                                "parameters": {},
+                                "error_message": str(e)})
     return answer_list

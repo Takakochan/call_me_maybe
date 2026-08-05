@@ -47,7 +47,6 @@ def parse_args() -> argparse.Namespace:
 def introduction_model(
     args: argparse.Namespace,
     model: Small_LLM_Model,
-    parser: Parser,
     vocab: Any
 ) -> None:
     print("=" * 50, file=sys.stderr)
@@ -73,7 +72,7 @@ def main() -> None:
         vocab = json.load(f)
     # model = Small_LLM_Model(model_name="Qwen/Qwen3-1.7B")
     if args.verbose:
-        introduction_model(args, model, parser, vocab)
+        introduction_model(args, model, vocab)
     out_dir = os.path.dirname(output_path)
     if out_dir:
         os.makedirs(out_dir, exist_ok=True)
