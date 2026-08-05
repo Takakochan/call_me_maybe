@@ -1,5 +1,5 @@
-from pydantic import BaseModel, Field, field_validator
-from typing import Literal
+from pydantic import BaseModel, Field, field_validator, RootModel
+from typing import Literal, Optional, Dict, Union, TypeAlias
 
 
 class PromptWrite(BaseModel):
@@ -14,7 +14,10 @@ class PromptWrite(BaseModel):
 
 
 class ParameterSchema(BaseModel):
-    type: Literal["number", "string", "boolean"]
+    """Using itself BaseModel enable self-referential"""
+
+    type: str
+    properties: Optional[Dict[str, "ParameterSchema"]] = None
 
 
 class FunctionDefinition(BaseModel):
@@ -34,7 +37,13 @@ class FunctionDefinition(BaseModel):
     #     return self
 
 
+ParameterValue: TypeAlias = RootModel[
+    Union[str, float, int, bool, Dict[str, "ParameterValue"]]
+]
+ParameterValue.model_rebuild()
+
+
 class ParameterFetch(BaseModel):
     prompt: str = ""
     name: str = ""
-    parameters: dict[str, str | float | bool] = Field(default_factory=dict)
+    parameters: dict[str, ParameterValue] = Field(default_factory=dict)

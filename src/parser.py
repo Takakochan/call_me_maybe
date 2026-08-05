@@ -61,15 +61,11 @@ class Parser:
         try:
             return [PromptWrite(**entry) for entry in raw]
         except (ValidationError, TypeError) as e:
-            raise InputSchemaError(
-                path, f"Unexpected prompt type/form - {e}"
-            ) from e
+            raise InputSchemaError(path, f"Unexpected prompt type/form - {e}") from e
 
     def _parse_func(self, path: str) -> list[FunctionDefinition]:
         raw = _load_json(path)
         try:
             return [FunctionDefinition(**entry) for entry in raw]
         except (ValidationError, TypeError) as e:
-            raise InputSchemaError(
-                path, f"Unexpected function type/form - {e}"
-            ) from e
+            raise InputSchemaError(path, f"Unexpected function type/form - {e}") from e

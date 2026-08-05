@@ -35,7 +35,8 @@ def parse_args() -> argparse.Namespace:
         help="Model name (default: Qwen/Qwen3-0.6B).",
     )
     parser.add_argument(
-        "--verbose", "-v",
+        "--verbose",
+        "-v",
         action="store_true",
         help="Show diagnostic output during generation.",
     )
@@ -44,18 +45,18 @@ def parse_args() -> argparse.Namespace:
 
 
 def introduction_model(
-        args: argparse.Namespace,
-        model: Small_LLM_Model,
-        parser: Parser,
-        vocab: Any
+    args: argparse.Namespace,
+    model: Small_LLM_Model,
+    parser: Parser,
+    vocab: Any
 ) -> None:
     print("=" * 50, file=sys.stderr)
-    print(f"Model:            {args.model}", file=sys.stderr)
-    print(f"Vocabulary size:  {len(vocab):,}", file=sys.stderr)
-    print(f"Vocab file:       {model.get_path_to_vocab_file()}", file=sys.stderr)
-    print(f"Merges file:      {model.get_path_to_merges_file()}", file=sys.stderr)  # ← 新規
-    # print(f"Functions loaded: {len(parser.functions)}", file=sys.stderr)
-    # print(f"Prompts to process: {len(parser.prompts)}", file=sys.stderr)
+    print(f"Model:          {args.model}", file=sys.stderr)
+    print(f"Vocabulary size:{len(vocab):,}", file=sys.stderr)
+    print(f"Vocab file:     {model.get_path_to_vocab_file()}", file=sys.stderr)
+    print(
+        f"Merges file:      {model.get_path_to_merges_file()}", file=sys.stderr
+    )
     print("=" * 50, file=sys.stderr)
 
 
