@@ -18,15 +18,11 @@ RM := rm -rf
 
 all: install run
 
-install: $(STAMP)
-
-$(STAMP): requirements.txt
-	uv venv $(VENV)
-	uv pip install --python $(VENV)/bin/python -r requirements.txt
-	touch $(STAMP)
+install: 
+	uv sync
 
 run:
-	uv run $(MAIN_PROGRAM)
+	uv run python -m src
 
 debug:
 	uv run python -m pdb $(MAIN_PROGRAM) 
@@ -40,7 +36,6 @@ clean:
 	$(RM) .pytest_cache/
 	$(RM) .ruff_cache/
 	$(RM) $(VENV)/
-	$(RM) mazegen.egg-info/
 	find . -type d -name "__pycache__" -exec $(RM) {} +
 
 lint:

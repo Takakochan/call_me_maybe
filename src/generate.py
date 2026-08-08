@@ -6,7 +6,8 @@ import argparse
 from llm_sdk.llm_sdk import Small_LLM_Model
 from .parser import Parser
 from .model import FunctionDefinition, ParameterFetch, ParameterValue
-from .bpe_tokenizer import encode
+from .bpe_tokenizer import encode, decode_tokens
+from .bpe_tokenizer import bytes_to_unicode, build_byte_decoder
 
 
 def vprint(to_print: str, verbose: argparse.Namespace) -> None:
@@ -201,39 +202,48 @@ def generate_value(
         return value, f"{prompt}{chosen_bool}"
 
     elif param_schema.type == "string":
+        byte_encoder = bytes_to_unicode()
+        byte_decoder = build_byte_decoder(byte_encoder)
+
         prompt = prompt + '"' + parameter_title + '": "'
-        value = ""
+        # value = ""
+        value_ids: list[int] = []
         if verbose:
             print(f"Param_type {param_schema.type}")
             print(f"Param_name {parameter_title}")
             print(f"Prompt: {prompt}")
         generated = encode(prompt, merge_ranks, vocab)
         while True:
-            allowed_ids = ALL_IDS if not value else ALL_IDS + TERMINATOR_LIST
+            allowed_ids = ALL_IDS if not value_ids \
+                else ALL_IDS + TERMINATOR_LIST
             parameter_id = get_allowed_ids(parameter_title, vocab)
             discouraged_ids = DIGITS_IDS + parameter_id
             chosen = masked_argmax(
                 model, generated, allowed_ids,
                 discouraged_ids
             )
-            chosen_tok = model.decode(chosen)
+            chosen_tok = id_to_token[chosen]
             vprint(f"Chosen token:=={chosen_tok}==", verbose)
-            if not value:
-                chosen_tok = chosen_tok.lstrip(" ")
-                chosen_tok = chosen_tok.rstrip(",")
-            if '"' in chosen_tok:
-                prefix = chosen_tok.split('"')[0]
-                value += prefix
-                break
-            if "," in chosen_tok:
-                break
-            value += chosen_tok
 
-            vprint(f"Built Value:=={value}==", verbose)
+            if '"' in chosen_tok:
+                prefix_sym = chosen_tok.split('"')[0]
+                if prefix_sym and prefix_sym in vocab:
+                    value_ids.append(vocab[prefix_sym])
+                break
+            if chosen in TERMINATOR_LIST:
+                break
+            value_ids.append(chosen)
             generated.append(chosen)
-            if len(value) > 60:
-                raise RuntimeError(f"Runaway string generation: {value!r}")
+            if len(value_ids) > 60:
+                raise RuntimeError("Runway string generation")
+        if value_ids:
+            value = decode_tokens(value_ids, id_to_token, byte_decoder)
+        else:
+            value = ""
+        value = value.lstrip(" ").rstrip(",")
+        vprint(f"Completed Value:=={value}==", verbose)
         return value, prompt + value + '"'
+
     else:
         raise ValueError(f"Unsupported parameter type: {param_schema.type}")
 
@@ -291,10 +301,15 @@ def generate_function_call(
     full_prompt = build_dynamic_prompt(user_prompt, funcs)
     vprint("let AI model chose a FUNCTION by feeding dynamic prompt", verbose)
     vprint(f"Dynamic prompt: {full_prompt}", verbose)
-    generated = encode(full_prompt, merge_ranks, vocab)
-#    prefix = '{"name": "'
-    prefix_ids = encode(full_prompt, merge_ranks, vocab)
-    generated.extend(prefix_ids)
+    # generated = encode(full_prompt, merge_ranks, vocab)
+    # prefix = '{"name": "'
+    # prefix_ids = encode(prefix, merge_ranks, vocab)
+    # generated.extend(prefix_ids)
+    # print("Separated")
+    # print(generated)
+    generated = encode(full_prompt + '{"name": "', merge_ranks, vocab)
+    # print("Waited")
+    # print(generated)
     candidates = {f.name: f.name for f in funcs}
     candidates["fn_none"] = "fn_none"
     chosen_function = None
@@ -371,7 +386,7 @@ def engine(
 
     for user_prompt in prompts:
         try:  # for Bonus "Advanced error recovery try/except"
-            vprint("\n====================New Request===================", verbose)
+            vprint("\n===============New Request================", verbose)
             vprint(f"User prompt: {user_prompt}", verbose)
             param_fetch_dict = ParameterFetch()
             param_fetch_dict.prompt = user_prompt.prompt
@@ -419,8 +434,8 @@ def engine(
             vprint("\n****Complete generation for the prompt****", verbose)
             vprint(param_fetch_dict.model_dump_json(indent=2), verbose)
         except Exception as e:
-            vprint(f"Error for a rompt {user_prompt.prompt} - {e}", verbose)
-            answer_list.append({"prommpt": user_prompt.prompt,
+            vprint(f"Error for a prompt {user_prompt.prompt} - {e}", verbose)
+            answer_list.append({"prompt": user_prompt.prompt,
                                 "name":  "fn_none",
                                 "parameters": {},
                                 "error_message": str(e)})

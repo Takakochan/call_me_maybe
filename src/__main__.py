@@ -70,7 +70,6 @@ def main() -> None:
     vocab_path = model.get_path_to_vocab_file()
     with open(vocab_path, "r", encoding="utf-8") as f:
         vocab = json.load(f)
-    # model = Small_LLM_Model(model_name="Qwen/Qwen3-1.7B")
     if args.verbose:
         introduction_model(args, model, vocab)
     out_dir = os.path.dirname(output_path)

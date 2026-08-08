@@ -40,7 +40,7 @@ def match_word(text: str, i: int) -> str | None:
 
 
 def match_number(text: str, i: int) -> str | None:
-    return text[i : i + 1] if i < len(text) and is_number(text[i]) else None
+    return text[i:i + 1] if i < len(text) and is_number(text[i]) else None
 
 
 def match_puncts(text: str, i: int) -> str | None:
@@ -82,7 +82,7 @@ def match_space(text: str, i: int) -> str | None:
     if j == len(text):
         return text[i:j]
     if length >= 2:
-        return text[i : j - 1]
+        return text[i:j - 1]
     return text[i:j]
 
 
@@ -117,7 +117,8 @@ def pre_tokenize(text: str) -> list[str]:
 @lru_cache()
 def bytes_to_unicode() -> dict[int, str]:
     """256種類のバイト値を、印刷可能なUnicode文字1つずつに対応させる.
-    https://www.mrinitialman.com/HTMLTutorial/Chapters/Appendices/Appendices-Characters.html"""
+    https://www.mrinitialman.com/HTMLTutorial/Chapters/
+    Appendices/Appendices-Characters.html"""
     bs = (
         list(range(ord("!"), ord("~") + 1))
         + list(range(ord("¡"), ord("¬") + 1))
@@ -134,7 +135,10 @@ def bytes_to_unicode() -> dict[int, str]:
     return dict(zip(bs, cs_chars))
 
 
-def piece_to_byte_symbols(piece: str, byte_encoder: dict[int, str]) -> list[str]:
+def piece_to_byte_symbols(
+    piece: str,
+    byte_encoder: dict[int, str]
+) -> list[str]:
     """1つのpre-token piece(元の文字列)を、byte-symbolのリストに変換する."""
     raw_bytes = piece.encode("utf-8")
     return [byte_encoder[b] for b in raw_bytes]
@@ -156,13 +160,17 @@ def load_merges(path: str) -> dict[tuple[str, str], int]:
     return merge_ranks
 
 
-def apply_bpe(symbols: list[str], merge_ranks: dict[tuple[str, str], int]) -> list[str]:
+def apply_bpe(
+    symbols: list[str],
+    merge_ranks: dict[tuple[str, str], int]
+) -> list[str]:
     """優先順位の高いペアから繰り返しBPEマージを適用する."""
     symbols = list(symbols)
     while len(symbols) > 1:
         pairs = [(symbols[i], symbols[i + 1]) for i in range(len(symbols) - 1)]
         candidates = [
-            (merge_ranks[p], i) for i, p in enumerate(pairs) if p in merge_ranks
+            (merge_ranks[p], i) for i, p in enumerate(pairs)
+            if p in merge_ranks
         ]
         if not candidates:
             break
@@ -170,7 +178,7 @@ def apply_bpe(symbols: list[str], merge_ranks: dict[tuple[str, str], int]) -> li
         symbols = (
             symbols[:best_i]
             + [symbols[best_i] + symbols[best_i + 1]]
-            + symbols[best_i + 2 :]
+            + symbols[best_i + 2:]
         )
     return symbols
 
