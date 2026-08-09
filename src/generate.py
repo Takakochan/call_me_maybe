@@ -101,6 +101,178 @@ def masked_argmax(
     return int(np.argmax(logits_np + mask))
 
 
+def _non_digit_ids(vocab: dict[str, int]) -> list[int]:
+    return [
+        t_id for token, t_id in vocab.items()
+        if token != vocab[","] and token != vocab["}"] and not token.isdigit()
+        ]
+
+
+def _digit_ids(vocab: dict[str, int]) -> list[int]:
+    return [
+        t_id for token, t_id in vocab.items()
+        if token.isdigit() or token == "," or token == "."
+        ]
+
+
+def _generate_object_value(
+    parameter_title: str,
+    param_schema: Any,
+    prompt: str,
+    model: Small_LLM_Model,
+    vocab: dict[str, int],
+    id_to_token: dict[int, str],
+    verbose: argparse.Namespace,
+    merge_ranks: dict[tuple[str, str], int]     
+) -> tuple[dict[str, Any], str]:
+    if param_schema.properties is None:
+        raise ValueError(
+            f'Schema for "{parameter_title}" has type "object" '
+            "but no properties defined"
+        )
+    prompt = prompt + '"' + parameter_title + '": {'
+    nested_value: dict[str, Any] = {}
+    items = list(param_schema.properties.items())
+    for i, (sub_name, sub_schema) in enumerate(items):
+        if i > 0:
+            prompt += ", "
+        sub_value, prompt = generate_value(
+            sub_name,
+            sub_schema,
+            prompt,
+            model,
+            vocab,
+            id_to_token,
+            verbose,
+            merge_ranks,
+        )
+        nested_value[sub_name] = sub_value
+    prompt = prompt + "}"
+    return nested_value, prompt
+
+
+def _generate_num_value(
+    parameter_title: str,
+    param_schema: Any,
+    prompt: str,
+    model: Small_LLM_Model,
+    vocab: dict[str, int],
+    id_to_token: dict[int, str],
+    verbose: argparse.Namespace,
+    merge_ranks: dict[tuple[str, str], int]
+) -> tuple[float | int, str]:
+    digit_ids = _digit_ids(vocab)
+    TERMINATOR_LIST = [vocab[","], vocab["}"]]
+    prompt = prompt + '"' + parameter_title + '": '
+    value = ""
+    if verbose:
+        print("\nParam_type number")
+        print(f"Param_name {parameter_title}")
+        print(f"Prompt: {prompt}")
+    generated = encode(prompt, merge_ranks, vocab)
+    while True:
+        allowed_ids = digit_ids if not value \
+            else digit_ids + TERMINATOR_LIST
+        discouraged_ids: list[int] = []
+        chosen = masked_argmax(
+            model, generated,
+            allowed_ids, discouraged_ids
+        )
+        chosen_tok = id_to_token[chosen]
+        if chosen in TERMINATOR_LIST:
+            break
+        value += chosen_tok
+        generated.append(chosen)
+        if len(value) > 15:
+            raise RuntimeError(f"Runaway number generation: {value!r}")
+    if param_schema.type == "number":
+        return float(value), f"{prompt}{value}"
+    else:
+        return int(value), f"{prompt}{value}"
+
+
+def _generate_boolean_value(
+    parameter_title: str,
+    prompt: str,
+    model: Small_LLM_Model,
+    vocab: dict[str, int],
+    id_to_token: dict[int, str],
+    verbose: argparse.Namespace,
+    merge_ranks: dict[tuple[str, str], int]
+) -> tuple[bool, str]:
+    prompt = prompt + '"' + parameter_title + '": '
+    if verbose:
+        print("\nParam_type boolean")
+        print(f"Param_name {parameter_title}")
+        print(f"Prompt: {prompt}")
+    generated = encode(prompt, merge_ranks, vocab)
+    candidates = {"true": "true", "false": "false"}
+    chosen_bool: Any = None
+    while chosen_bool is None:
+        allowed_ids = get_union_allowed_ids(candidates, vocab)
+        chosen = masked_argmax(model, generated, allowed_ids, [])
+        generated.append(chosen)
+        chosen_str = id_to_token[chosen]
+        candidates = update_candidates(candidates, chosen_str)
+        for name, remaining in candidates.items():
+            if remaining == "":
+                chosen_bool = name
+    value = chosen_bool == "true"
+    return value, f"{prompt}{chosen_bool}"
+
+
+def _generate_str_value(
+    parameter_title: str,
+    prompt: str,
+    model: Small_LLM_Model,
+    vocab: dict[str, int],
+    id_to_token: dict[int, str],
+    verbose: argparse.Namespace,
+    merge_ranks: dict[tuple[str, str], int]
+) -> tuple[str, str]:
+    byte_encoder = bytes_to_unicode()
+    byte_decoder = build_byte_decoder(byte_encoder)
+    all_ids = _non_digit_ids(vocab)
+    digit_ids = _digit_ids(vocab)
+    prompt = prompt + '"' + parameter_title + '": "'
+    # value = ""
+    value_ids: list[int] = []
+    if verbose:
+        print("Param_type string")
+        print(f"Param_name {parameter_title}")
+        print(f"Prompt: {prompt}")
+    generated = encode(prompt, merge_ranks, vocab)
+    while True:
+        allowed_ids = all_ids if not value_ids \
+            else all_ids + [vocab[","], vocab["}"]]
+        parameter_id = get_allowed_ids(parameter_title, vocab)
+        discouraged_ids = digit_ids + parameter_id
+        chosen = masked_argmax(
+            model, generated, allowed_ids,
+            discouraged_ids
+        )
+        chosen_tok = id_to_token[chosen]
+        vprint(f"Chosen token:=={chosen_tok}==", verbose)
+        if '"' in chosen_tok:
+            prefix_sym = chosen_tok.split('"')[0]
+            if prefix_sym and prefix_sym in vocab:
+                value_ids.append(vocab[prefix_sym])
+            break
+        if chosen in [vocab[","], vocab["}"]]:
+            break
+        value_ids.append(chosen)
+        generated.append(chosen)
+        if len(value_ids) > 60:
+            raise RuntimeError("Runway string generation")
+    if value_ids:
+        value = decode_tokens(value_ids, id_to_token, byte_decoder)
+    else:
+        value = ""
+    value = value.lstrip(" ").rstrip(",")
+    vprint(f"Completed Value:=={value}==", verbose)
+    return value, prompt + value + '"'
+
+
 def generate_value(
     parameter_title: str,
     param_schema: Any,
@@ -114,136 +286,30 @@ def generate_value(
     """Generate a value for a parameter. if it's object, recurse.
     if it's scalar original logic
     """
-    TERMINATOR_LIST = [vocab[","], vocab["}"]]
-    DIGITS_IDS = [
-        t_id
-        for token, t_id in vocab.items()
-        if token.isdigit() or token == "," or token == "."
-    ]
-    ALL_IDS = [
-        t_id
-        for token, t_id in vocab.items()
-        if token != vocab[","] and token != vocab["}"] and not token.isdigit()
-    ]
 
     if param_schema.type == "object":
-        if param_schema.properties is None:
-            raise ValueError(
-                f'Schema for "{parameter_title}" has type "object" '
-                "but no properties defined"
-            )
-        prompt = prompt + '"' + parameter_title + '": {'
-        nested_value: dict[str, Any] = {}
-        items = list(param_schema.properties.items())
-        for i, (sub_name, sub_schema) in enumerate(items):
-            if i > 0:
-                prompt += ", "
-            sub_value, prompt = generate_value(
-                sub_name,
-                sub_schema,
-                prompt,
-                model,
-                vocab,
-                id_to_token,
-                verbose,
-                merge_ranks,
-            )
-            nested_value[sub_name] = sub_value
-        prompt = prompt + "}"
-        return nested_value, prompt
+        return _generate_object_value(
+            parameter_title, param_schema, prompt, model, vocab,
+            id_to_token, verbose, merge_ranks
+        )
 
     elif param_schema.type == "number" or param_schema.type == "integer":
-        prompt = prompt + '"' + parameter_title + '": '
-        value = ""
-        if verbose:
-            print("\nParam_type number")
-            print(f"Param_name {parameter_title}")
-            print(f"Prompt: {prompt}")
-        generated = encode(prompt, merge_ranks, vocab)
-        while True:
-            allowed_ids = DIGITS_IDS if not value \
-                else DIGITS_IDS + TERMINATOR_LIST
-            discouraged_ids: list[int] = []
-            chosen = masked_argmax(
-                model, generated,
-                allowed_ids, discouraged_ids
-            )
-            chosen_tok = id_to_token[chosen]
-            if chosen in TERMINATOR_LIST:
-                break
-            value += chosen_tok
-            generated.append(chosen)
-            if len(value) > 15:
-                raise RuntimeError(f"Runaway number generation: {value!r}")
-        if param_schema.type == "number":
-            return float(value), f"{prompt}{value}"
-        else:
-            return int(value), f"{prompt}{value}"
+        return _generate_num_value(
+            parameter_title, param_schema, prompt, model, vocab,
+            id_to_token, verbose, merge_ranks
+        )
 
     elif param_schema.type == "boolean":
-        prompt = prompt + '"' + parameter_title + '": '
-        if verbose:
-            print("\nParam_type boolean")
-            print(f"Param_name {parameter_title}")
-            print(f"Prompt: {prompt}")
-        generated = encode(prompt, merge_ranks, vocab)
-        candidates = {"true": "true", "false": "false"}
-        chosen_bool: Any = None
-        while chosen_bool is None:
-            allowed_ids = get_union_allowed_ids(candidates, vocab)
-            chosen = masked_argmax(model, generated, allowed_ids, [])
-            generated.append(chosen)
-            chosen_str = id_to_token[chosen]
-            candidates = update_candidates(candidates, chosen_str)
-            for name, remaining in candidates.items():
-                if remaining == "":
-                    chosen_bool = name
-        value = chosen_bool == "true"
-        return value, f"{prompt}{chosen_bool}"
+        return _generate_boolean_value(
+            parameter_title, prompt, model, vocab,
+            id_to_token, verbose, merge_ranks
+        )
 
     elif param_schema.type == "string":
-        byte_encoder = bytes_to_unicode()
-        byte_decoder = build_byte_decoder(byte_encoder)
-
-        prompt = prompt + '"' + parameter_title + '": "'
-        # value = ""
-        value_ids: list[int] = []
-        if verbose:
-            print(f"Param_type {param_schema.type}")
-            print(f"Param_name {parameter_title}")
-            print(f"Prompt: {prompt}")
-        generated = encode(prompt, merge_ranks, vocab)
-        while True:
-            allowed_ids = ALL_IDS if not value_ids \
-                else ALL_IDS + TERMINATOR_LIST
-            parameter_id = get_allowed_ids(parameter_title, vocab)
-            discouraged_ids = DIGITS_IDS + parameter_id
-            chosen = masked_argmax(
-                model, generated, allowed_ids,
-                discouraged_ids
-            )
-            chosen_tok = id_to_token[chosen]
-            vprint(f"Chosen token:=={chosen_tok}==", verbose)
-
-            if '"' in chosen_tok:
-                prefix_sym = chosen_tok.split('"')[0]
-                if prefix_sym and prefix_sym in vocab:
-                    value_ids.append(vocab[prefix_sym])
-                break
-            if chosen in TERMINATOR_LIST:
-                break
-            value_ids.append(chosen)
-            generated.append(chosen)
-            if len(value_ids) > 60:
-                raise RuntimeError("Runway string generation")
-        if value_ids:
-            value = decode_tokens(value_ids, id_to_token, byte_decoder)
-        else:
-            value = ""
-        value = value.lstrip(" ").rstrip(",")
-        vprint(f"Completed Value:=={value}==", verbose)
-        return value, prompt + value + '"'
-
+        return _generate_str_value(
+            parameter_title, prompt, model, vocab,
+            id_to_token, verbose, merge_ranks
+        )
     else:
         raise ValueError(f"Unsupported parameter type: {param_schema.type}")
 
