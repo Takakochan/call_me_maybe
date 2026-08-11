@@ -11,6 +11,12 @@ from .generate import engine
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments for the ``python -m src`` entry point.。
+    Returns:
+        The parsed arguments, including ``functions_definition``,
+        ``input``, ``output``, ``model``, and ``verbose`` - each with a
+        sensible default so the program can be run with no flags at all.
+    """
     parser = argparse.ArgumentParser(
         description="Translate natural-language prompts into function calls."
     )
@@ -49,6 +55,7 @@ def introduction_model(
     model: Small_LLM_Model,
     vocab: Any
 ) -> None:
+    """Print a diagnostic banner describing the loaded model and vocab. """
     print("=" * 50, file=sys.stderr)
     print(f"Model:          {args.model}", file=sys.stderr)
     print(f"Vocabulary size:{len(vocab):,}", file=sys.stderr)
@@ -60,18 +67,18 @@ def introduction_model(
 
 
 def main() -> None:
-    """モデルと語彙を準備して get_allowed_ids を試す."""
+    """Run the full CLI pipeline: parse inputs, generate, write output.
+    """
     start = time.time()
     args = parse_args()
     parser = Parser(args.functions_definition, args.input)
     output_path = args.output
-    model = Small_LLM_Model()
+    model = Small_LLM_Model(args.model)
     print(model)
     vocab_path = model.get_path_to_vocab_file()
     with open(vocab_path, "r", encoding="utf-8") as f:
         vocab = json.load(f)
-    if args.verbose:
-        introduction_model(args, model, vocab)
+    introduction_model(args, model, vocab)
     out_dir = os.path.dirname(output_path)
     if out_dir:
         os.makedirs(out_dir, exist_ok=True)

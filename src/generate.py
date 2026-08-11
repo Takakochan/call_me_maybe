@@ -11,6 +11,13 @@ from .bpe_tokenizer import bytes_to_unicode, build_byte_decoder
 
 
 def vprint(to_print: str, verbose: argparse.Namespace) -> None:
+    """Print a diagnostic line only when verbose mode is on.
+    Used throughout the generation pipeline so that ``--verbose`` traces
+    never leak into the pipeline's actual JSON output.
+    Args:
+        to_print: The message to print.
+        verbose: Truthy to enable printing; falsy to suppress it.
+    """
     if verbose:
         print(to_print)
 
@@ -37,6 +44,15 @@ def get_allowed_ids(remaining: str, vocab: dict[str, int]) -> list[int]:
 def get_union_allowed_ids(
     candidates: dict[str, str], vocab: dict[str, int]
 ) -> list[int]:
+    """Return the union of allowed next-token IDs across all candidates.
+    Args:
+        candidates: A mapping from candidate name to its remaining
+            (not-yet-matched) string, e.g. ``{"fn_greet": "greet"}``.
+        vocab: The token-string-to-ID vocabulary mapping.
+    Returns:
+        The deduplicated list of token IDs that legally continue at
+        least one candidate.
+    """
     unioned_ids = set()
     for i in candidates.values():
         # print(f"i id {i}")
@@ -50,7 +66,18 @@ def update_candidates(
     candidates: dict[str, str],
     chosen_str: str
 ) -> dict[str, str]:
-    """chosen_strで始まる候補だけ残し、そのぶん削った新しい辞書を返す."""
+    """Narrow candidates to those matching the just-chosen token string.
+    Candidates whose remaining string does not start with ``chosen_str``
+    are dropped; the rest have ``chosen_str`` stripped from the front of
+    their remaining string, ready for the next decoding step.
+    Args:
+        candidates: A mapping from candidate name to its remaining
+            string, as produced by a previous call or the initial seed.
+        chosen_str: The token string the model just selected.
+    Returns:
+        A new mapping containing only the still-matching candidates,
+        with ``chosen_str`` consumed from their remaining string.
+    """
     return {
         name: remaining[len(chosen_str):]
         for name, remaining in candidates.items()
@@ -59,6 +86,12 @@ def update_candidates(
 
 
 def vocab_id_to_token(vocab: dict) -> dict[int, str]:
+    """Invert a token-to-ID vocabulary into an ID-to-token mapping.
+    Args:
+        vocab: The token-string-to-ID vocabulary mapping.
+    Returns:
+        The inverse mapping, from ID to token string.
+    """
     return {v: key for key, v in vocab.items()}
 
 
@@ -66,6 +99,18 @@ def build_dynamic_prompt(
     prompt: str,
     definitions: list[FunctionDefinition]
 ) -> str:
+    """Build the few-shot prompt used to select which function to call.
+    The available function list is generated dynamically from
+    ``definitions``, so nothing about a specific function set is
+    hardcoded: swapping in an entirely different set of functions
+    requires no code change.
+    Args:
+        prompt: The user's natural-language request.
+        definitions: The available function definitions to advertise.
+    Returns:
+        The full prompt text, listing every function name and
+        description followed by the user's request.
+    """
     lines = [f"- {d.name}: {d.description}" for d in definitions]
     return (
         "You translate user requests into function calls.\n"
@@ -77,7 +122,15 @@ def build_dynamic_prompt(
 def get_parameter_type_list(
     chosen_func: str, funcs: list[FunctionDefinition]
 ) -> list[str]:
-    """returns like '"a": ', eventually need to use replace("'", '"')"""
+    """List the parameter types (in order) of one chosen function.
+    Args:
+        chosen_func: The name of the function to look up.
+        funcs: The full list of available function definitions.
+    Returns:
+        The type name of each parameter of ``chosen_func``, in
+        declaration order (e.g. ``["number", "string"]``). Empty if no
+        function named ``chosen_func`` is found.
+    """
     intro_list = []
     for func in funcs:
         if func.name != chosen_func:
@@ -90,11 +143,32 @@ def get_parameter_type_list(
 
 def masked_argmax(
     model: Small_LLM_Model,
-    generated: list,
+    generated_ids: list,
     allowed_ids: list[int],
     discouraged_ids: list[int],
 ) -> int:
-    logits_np = np.array(model.get_logits_from_input_ids(generated))
+    """Pick the next token ID under a hard mask plus a soft penalty.
+    ハードなマスクとソフトな減点を適用した上で、次のトークンIDを選ぶ。
+
+    This is the single function implementing constrained decoding: every
+    token *not* in ``allowed_ids`` gets ``-inf`` added to its logit, so it
+    can never be selected no matter how confident the model is about it
+    - the schema always wins. Tokens in ``discouraged_ids`` instead get a
+    finite ``-8.0`` penalty, biasing the model away from them without
+    forbidding them outright (used e.g. to discourage, but not prevent,
+    copying the parameter's own name as its value).
+    Args:
+        model: The LLM wrapper to query for next-token logits.
+        generated: The token IDs generated so far (the current context).
+        allowed_ids: Token IDs that are structurally legal here; every
+            other token is masked to ``-inf``.
+        discouraged_ids: Token IDs to softly penalize (``-8.0``) without
+            excluding them, as a plain list or a numpy array of IDs.
+    Returns:
+        The chosen token ID: the argmax of the masked-and-penalized
+        logits.。
+    """
+    logits_np = np.array(model.get_logits_from_input_ids(generated_ids))
     mask = np.full_like(logits_np, -np.inf)
     mask[allowed_ids] = 0.0
     mask[discouraged_ids] = -8.0
@@ -102,6 +176,17 @@ def masked_argmax(
 
 
 def _non_digit_ids(vocab: dict[str, int]) -> list[int]:
+    """List vocabulary IDs for every token except digits, ``,`` and ``}``.
+    Used as the legal token set while generating a string value: digits
+    are excluded (discouraged separately via ``_digit_ids`` instead, so
+    genuinely numeric-looking string content is still reachable), and the
+    two structural characters are written by the caller directly rather
+    than generated.
+    Args:
+        vocab: The token-string-to-ID vocabulary mapping.
+    Returns:
+        The IDs of every token that is not a digit, ``","``, or ``"}"``.
+    """
     return [
         t_id for token, t_id in vocab.items()
         if token != vocab[","] and token != vocab["}"] and not token.isdigit()
@@ -109,6 +194,16 @@ def _non_digit_ids(vocab: dict[str, int]) -> list[int]:
 
 
 def _digit_ids(vocab: dict[str, int]) -> list[int]:
+    """List vocabulary IDs for digit tokens (plus ``,`` and ``.``).
+    The comma and dot are included because a number's value may need a
+    decimal point, and a soft-discouraged comma helps steer away from
+    accidentally spelling one into a string value (see
+    ``_generate_string_value``).
+    Args:
+        vocab: The token-string-to-ID vocabulary mapping.
+    Returns:
+        The IDs of every token that is a digit, ``","``, or ``"."``.
+    """
     return [
         t_id for token, t_id in vocab.items()
         if token.isdigit() or token == "," or token == "."
@@ -123,8 +218,25 @@ def _generate_object_value(
     vocab: dict[str, int],
     id_to_token: dict[int, str],
     verbose: argparse.Namespace,
-    merge_ranks: dict[tuple[str, str], int]     
+    merge_ranks: dict[tuple[str, str], int]
 ) -> tuple[dict[str, Any], str]:
+    """Generate a nested-object value by recursing into each property.
+    Args:
+        parameter_title: The name of the object parameter being
+        param_schema: The ``ParameterSchema`` with ``type == "object"``
+            and a non-``None`` ``properties`` mapping.
+        prompt: The JSON text assembled so far.
+        user_prompt: The original natural-language user request.
+        model: The LLM wrapper used for constrained decoding.
+        vocab: The token-string-to-ID vocabulary mapping.
+        id_to_token: The inverse of ``vocab``, from ID to token string.
+        verbose: Truthy to print step-by-step generation traces.
+        merge_ranks: The BPE merge-priority table from ``load_merges``.
+    Returns:
+        A tuple of the generated nested dict and the updated prompt
+    Raises:
+        ValueError: If ``param_schema.properties`` is ``None``.
+    """
     if param_schema.properties is None:
         raise ValueError(
             f'Schema for "{parameter_title}" has type "object" '
@@ -161,6 +273,26 @@ def _generate_num_value(
     verbose: argparse.Namespace,
     merge_ranks: dict[tuple[str, str], int]
 ) -> tuple[float | int, str]:
+    """Generate a ``number`` or ``integer`` value, one digit at a time.
+    Only digit tokens (and a decimal point, once at least one digit has
+    been written) are legal, until a comma/brace token signals the end.
+    Args:
+        parameter_title: The name of the numeric parameter being
+        param_schema: The ``ParameterSchema`` with ``type`` of
+            ``"number"`` or ``"integer"``.
+        prompt: The JSON text assembled so far.
+        model: The LLM wrapper used for constrained decoding.
+        vocab: The token-string-to-ID vocabulary mapping.
+        id_to_token: The inverse of ``vocab``, from ID to token string.
+        verbose: Truthy to print step-by-step generation traces.
+        merge_ranks: The BPE merge-priority table from ``load_merges``.
+    Returns:
+        A tuple of the generated ``float`` or ``int`` value and the
+        updated prompt text.
+    Raises:
+        RuntimeError: If generation exceeds a sanity length limit
+            without terminating (indicates a runaway loop).
+    """
     digit_ids = _digit_ids(vocab)
     TERMINATOR_LIST = [vocab[","], vocab["}"]]
     prompt = prompt + '"' + parameter_title + '": '
@@ -169,20 +301,20 @@ def _generate_num_value(
         print("\nParam_type number")
         print(f"Param_name {parameter_title}")
         print(f"Prompt: {prompt}")
-    generated = encode(prompt, merge_ranks, vocab)
+    generated_ids = encode(prompt, merge_ranks, vocab)
     while True:
         allowed_ids = digit_ids if not value \
             else digit_ids + TERMINATOR_LIST
         discouraged_ids: list[int] = []
         chosen = masked_argmax(
-            model, generated,
+            model, generated_ids,
             allowed_ids, discouraged_ids
         )
         chosen_tok = id_to_token[chosen]
         if chosen in TERMINATOR_LIST:
             break
         value += chosen_tok
-        generated.append(chosen)
+        generated_ids.append(chosen)
         if len(value) > 15:
             raise RuntimeError(f"Runaway number generation: {value!r}")
     if param_schema.type == "number":
@@ -200,18 +332,30 @@ def _generate_boolean_value(
     verbose: argparse.Namespace,
     merge_ranks: dict[tuple[str, str], int]
 ) -> tuple[bool, str]:
+    """Generate a ``boolean`` value via prefix matching on "true"/"false".
+    Args:
+        parameter_title: The name of the boolean parameter being
+        prompt: The JSON text assembled so far.
+        model: The LLM wrapper used for constrained decoding.
+        vocab: The token-string-to-ID vocabulary mapping.
+        id_to_token: The inverse of ``vocab``, from ID to token string.
+        verbose: Truthy to print step-by-step generation traces.
+        merge_ranks: The BPE merge-priority table from ``load_merges``.
+    Returns:
+        A tuple of the generated ``bool`` value and the updated prompt
+    """
     prompt = prompt + '"' + parameter_title + '": '
     if verbose:
         print("\nParam_type boolean")
         print(f"Param_name {parameter_title}")
         print(f"Prompt: {prompt}")
-    generated = encode(prompt, merge_ranks, vocab)
+    generated_ids = encode(prompt, merge_ranks, vocab)
     candidates = {"true": "true", "false": "false"}
     chosen_bool: Any = None
     while chosen_bool is None:
         allowed_ids = get_union_allowed_ids(candidates, vocab)
-        chosen = masked_argmax(model, generated, allowed_ids, [])
-        generated.append(chosen)
+        chosen = masked_argmax(model, generated_ids, allowed_ids, [])
+        generated_ids.append(chosen)
         chosen_str = id_to_token[chosen]
         candidates = update_candidates(candidates, chosen_str)
         for name, remaining in candidates.items():
@@ -230,6 +374,28 @@ def _generate_str_value(
     verbose: argparse.Namespace,
     merge_ranks: dict[tuple[str, str], int]
 ) -> tuple[str, str]:
+    """Generate a ``string`` value, stopping at the closing quote.
+    Any non-digit token is legal at each step (digits and the
+    parameter's own name are softly discouraged, to bias away from
+    copying the schema itself rather than real content) until a token
+    containing a literal ``"`` is produced, signalling the end of the
+    value.
+    Args:
+        parameter_title: The name of the string parameter being
+            generated (also used to discourage self-referential copies).
+        prompt: The JSON text assembled so far.
+        model: The LLM wrapper used for constrained decoding.
+        vocab: The token-string-to-ID vocabulary mapping.
+        id_to_token: The inverse of ``vocab``, from ID to token string.
+        verbose: Truthy to print step-by-step generation traces.
+        merge_ranks: The BPE merge-priority table from ``load_merges``.
+    Returns:
+        A tuple of the generated string value and the updated prompt
+        text (with the closing quote appended).
+    Raises:
+        RuntimeError: If generation exceeds a sanity length limit
+            without terminating (indicates a runaway loop).
+    """
     byte_encoder = bytes_to_unicode()
     byte_decoder = build_byte_decoder(byte_encoder)
     all_ids = _non_digit_ids(vocab)
@@ -241,14 +407,14 @@ def _generate_str_value(
         print("Param_type string")
         print(f"Param_name {parameter_title}")
         print(f"Prompt: {prompt}")
-    generated = encode(prompt, merge_ranks, vocab)
+    generated_ids = encode(prompt, merge_ranks, vocab)
     while True:
         allowed_ids = all_ids if not value_ids \
             else all_ids + [vocab[","], vocab["}"]]
         parameter_id = get_allowed_ids(parameter_title, vocab)
         discouraged_ids = digit_ids + parameter_id
         chosen = masked_argmax(
-            model, generated, allowed_ids,
+            model, generated_ids, allowed_ids,
             discouraged_ids
         )
         chosen_tok = id_to_token[chosen]
@@ -261,7 +427,7 @@ def _generate_str_value(
         if chosen in [vocab[","], vocab["}"]]:
             break
         value_ids.append(chosen)
-        generated.append(chosen)
+        generated_ids.append(chosen)
         if len(value_ids) > 60:
             raise RuntimeError("Runway string generation")
     if value_ids:
@@ -283,10 +449,45 @@ def generate_value(
     verbose: argparse.Namespace,
     merge_ranks: dict[tuple[str, str], int],
 ) -> tuple[Any, str]:
-    """Generate a value for a parameter. if it's object, recurse.
-    if it's scalar original logic
-    """
+    """Generate one parameter's value, dispatching on its schema type.
 
+    Writes the fixed JSON punctuation (key name, colon, braces/quotes)
+    directly into ``prompt`` without consulting the model - only the
+    actual value content is generated token by token, using constrained
+    decoding appropriate to the type. See ``_generate_object_value``,
+    ``_generate_number_value``, ``_generate_boolean_value``, and
+    ``_generate_string_value`` for the type-specific details.
+    Args:
+        parameter_title: The name of the parameter being generated.
+        param_schema: The ``ParameterSchema`` describing this。
+        prompt: The JSON text assembled so far; this call appends to it.
+        user_prompt: The original natural-language user request, passed
+            through to ``_generate_object_value`` for its recursive
+            calls.
+        model: The LLM wrapper used for constrained decoding.
+        vocab: The token-string-to-ID vocabulary mapping.
+        id_to_token: The inverse of ``vocab``, from ID to token string.
+        verbose: Truthy to print step-by-step generation traces.
+        merge_ranks: The BPE merge-priority table from ``load_merges``.
+
+    Returns:
+        A tuple of the generated Python value (``dict``, ``float``,
+        ``int``, ``bool``, or ``str`` depending on the schema type) and
+        the updated ``prompt`` text with this value's JSON appended.
+        生成されたPythonの値（スキーマの型に応じて``dict``、``float``、
+        ``int``、``bool``、``str``のいずれか）と、この値のJSONが
+        追記された``prompt``のタプル。
+
+    Raises:
+        ValueError: If an ``object`` schema has no ``properties``, or
+            the schema's ``type`` is not one of the supported kinds.
+            ``object``スキーマに``properties``がない場合、または
+            スキーマの``type``がサポート対象の種類でない場合。
+        RuntimeError: If number or string generation runs away past its
+            sanity length limit without terminating.
+            数値または文字列の生成が、正常に終端しないまま長さの
+            上限を超えて暴走した場合。
+    """
     if param_schema.type == "object":
         return _generate_object_value(
             parameter_title, param_schema, prompt, model, vocab,
@@ -325,6 +526,25 @@ def generate_parameter(
     verbose: argparse.Namespace,
     merge_ranks: dict[tuple[str, str], int],
 ) -> str:
+    """Generate every argument of the chosen function, in order.
+    Writes each generated value into ``param_fetch_dict.parameters`` as
+    a side effect, and also returns the assembled JSON text (mainly
+    useful for tracing/debugging).
+    Args:
+        param_fetch_dict: The accumulator to fill with generated
+        user_prompt: The original natural-language user request.
+        chosen_func: The name of the function whose parameters are
+        parameters: The chosen function's parameter schemas, keyed by
+            name (from ``FunctionDefinition.parameters``).
+        model: The LLM wrapper used for constrained decoding.
+        vocab: The token-string-to-ID vocabulary mapping.
+        id_to_token: The inverse of ``vocab``, from ID to token string.
+        verbose: Truthy to print step-by-step generation traces.
+        merge_ranks: The BPE merge-priority table from ``load_merges``.
+    Returns:
+        The full ``"parameters": {...}`` JSON text assembled while
+        generating each argument.
+    """
     prompt = (
         '"prompt": '
         + user_prompt
@@ -363,19 +583,34 @@ def generate_function_call(
     verbose: argparse.Namespace,
     merge_ranks: dict[tuple[str, str], int],
 ) -> str:
-    """1プロンプト分の生成パイプライン。選ばれた関数名を返す."""
+    """Select which function best matches the user's request.
+    Builds the dynamic function-list prompt, then walks the model down a
+    prefix-matched choice between every known function name (plus
+    "fn_none" for "no function fits") using the same constrained-decoding
+    machinery as everywhere else - the model can never land on a name
+    that is not in ``funcs``.
+    Args:
+        user_prompt: The user's natural-language request.
+        funcs: The available function definitions to choose among.
+        model: The LLM wrapper used for constrained decoding.
+        vocab: The token-string-to-ID vocabulary mapping.
+        id_to_token: The inverse of ``vocab``, from ID to token string.
+        verbose: Truthy to print step-by-step selection traces.
+        merge_ranks: The BPE merge-priority table from ``load_merges``.
+    Returns:
+        The name of the chosen function, or ``"fn_none"`` if the model
+        determines no function fits.
+    Raises:
+        RuntimeError: If every candidate gets eliminated before one is
+            fully spelled out (indicates a logic bug or corrupt input).
+    """
     full_prompt = build_dynamic_prompt(user_prompt, funcs)
     vprint("let AI model chose a FUNCTION by feeding dynamic prompt", verbose)
     vprint(f"Dynamic prompt: {full_prompt}", verbose)
-    # generated = encode(full_prompt, merge_ranks, vocab)
+    generated_ids = encode(full_prompt, merge_ranks, vocab)
     # prefix = '{"name": "'
-    # prefix_ids = encode(prefix, merge_ranks, vocab)
-    # generated.extend(prefix_ids)
-    # print("Separated")
-    # print(generated)
-    generated = encode(full_prompt + '{"name": "', merge_ranks, vocab)
-    # print("Waited")
-    # print(generated)
+    prefix_ids = encode(full_prompt, merge_ranks, vocab)
+    generated_ids.extend(prefix_ids)
     candidates = {f.name: f.name for f in funcs}
     candidates["fn_none"] = "fn_none"
     chosen_function = None
@@ -386,10 +621,13 @@ def generate_function_call(
             )
         allowed_ids = get_union_allowed_ids(candidates, vocab)
         discouraged_ids: list[int] = []
-        chosen = masked_argmax(model, generated, allowed_ids, discouraged_ids)
+        chosen = masked_argmax(
+            model, generated_ids,
+            allowed_ids, discouraged_ids
+        )
 
-        generated.append(chosen)
-        vprint(f"\n{generated}", verbose)
+        generated_ids.append(chosen)
+        vprint(f"\n{generated_ids}", verbose)
         chosen_str = id_to_token[chosen]
         vprint(f"Model picked Logit ID: {chosen} \n"
                f"Logit Token: {chosen_str}", verbose)
@@ -414,32 +652,67 @@ def verify_function_choice(
     merge_ranks: dict[tuple[str, str], int],
     verbose: argparse.Namespace,
 ) -> bool:
-    """選ばれた関数がプロンプトに本当に合っているか、モデルに判定させる."""
+    """Ask the model to double-check that the chosen function actually fits.
+    Acts as a second opinion after ``generate_function_call``: the model
+    is asked a plain yes/no question, decoded via the same "yes"/"no"
+    prefix-matching used elsewhere, so it can only ever answer one of
+    those two words.
+    Args:
+        user_prompt: The user's natural-language request.
+        chosen_func: The function name selected by
+            ``generate_function_call``, to be verified.
+        model: The LLM wrapper used for constrained decoding.
+        vocab: The token-string-to-ID vocabulary mapping.
+        id_to_token: The inverse of ``vocab``, from ID to token string.
+        merge_ranks: The BPE merge-priority table from ``load_merges``.
+        verbose: Truthy to print the verification result.
+    Returns:
+        ``True`` if the model answers "yes" (the choice is appropriate),
+        ``False`` if it answers "no".
+    """
     verify_prompt = (
         f'User request: "{user_prompt}"\n'
         f"Selected function: {chosen_func}\n"
-        f"Is this selected function appropriate for the User request? "
+        f"Is this selected function appropriate for the User request?"
     )
-    generated = encode(verify_prompt, merge_ranks, vocab)
-    candidates = {"yes": "yes", "no": "no"}
+    generated_ids = encode(verify_prompt, merge_ranks, vocab)
+    candidates = {"yes": " yes", "Yes": " Yes", "no": " no", "No": " No"}
     chosen_answer = None
     while chosen_answer is None:
         allowed_ids = get_union_allowed_ids(candidates, vocab)
-        chosen = masked_argmax(model, generated, allowed_ids, [])
-        generated.append(chosen)
+        chosen = masked_argmax(model, generated_ids, allowed_ids, [])
+        generated_ids.append(chosen)
         chosen_str = id_to_token[chosen]
         candidates = update_candidates(candidates, chosen_str)
         for name, remaining in candidates.items():
             if remaining == "":
                 chosen_answer = name
     vprint(f"Verification: {chosen_func} -> {chosen_answer}", verbose)
-    return chosen_answer == "yes"
+    return chosen_answer.lower() == "yes"
 
 
 def engine(
     parser: Parser, model: Small_LLM_Model,
     vocab: Any, verbose: argparse.Namespace
 ) -> list[dict]:
+    """Run the full function-calling pipeline over every parsed prompt.
+    For each prompt: select a function, verify the selection, generate
+    its arguments (skipped for "fn_none"), and record the result. Each
+    prompt is processed inside its own ``try``/``except`` so that one
+    prompt's failure (e.g. a runaway-generation guard tripping) does not
+    abort the rest of the batch; on failure, a schema-compliant
+    ``fn_none`` fallback entry is recorded instead.
+    Args:
+        parser: The validated ``Parser`` holding the prompts and
+            function definitions to process.
+        model: The LLM wrapper used for constrained decoding.
+        vocab: The token-string-to-ID vocabulary mapping.
+        verbose: Truthy to print step-by-step traces for every prompt.
+    Returns:
+        One result dict per prompt, each with exactly the keys
+        ``"prompt"``, ``"name"``, and ``"parameters"`` - ready to be
+        JSON-serialized as the final output file.
+    """
     prompts = parser.prompt_list
     funcs = parser.func_list
     id_to_token = vocab_id_to_token(vocab)

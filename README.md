@@ -410,6 +410,3 @@ Specifically:
   then discussed to generalise.
 - **Reviewing structure** — discussing the ordering of the validation stages and the
   organisation of this README.
-
-All code in this repository was written and is understood by the author. Discoveries made
-during development are logged in `learned.txt`.
