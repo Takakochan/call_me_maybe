@@ -146,7 +146,7 @@ def masked_argmax(
     generated_ids: list,
     allowed_ids: list[int],
     discouraged_ids: list[int],
-) -> int:
+) -> tuple[int, Any]:
     """Pick the next token ID under a hard mask plus a soft penalty.
     ハードなマスクとソフトな減点を適用した上で、次のトークンIDを選ぶ。
 
@@ -172,7 +172,7 @@ def masked_argmax(
     mask = np.full_like(logits_np, -np.inf)
     mask[allowed_ids] = 0.0
     mask[discouraged_ids] = -8.0
-    return int(np.argmax(logits_np + mask))
+    return int(np.argmax(logits_np + mask)), logits_np
 
 
 def _non_digit_ids(vocab: dict[str, int]) -> list[int]:
@@ -676,19 +676,12 @@ def verify_function_choice(
         f"Is this selected function appropriate for the User request?"
     )
     generated_ids = encode(verify_prompt, merge_ranks, vocab)
-    candidates = {"yes": " yes", "Yes": " Yes", "no": " no", "No": " No"}
-    chosen_answer = None
-    while chosen_answer is None:
-        allowed_ids = get_union_allowed_ids(candidates, vocab)
-        chosen = masked_argmax(model, generated_ids, allowed_ids, [])
-        generated_ids.append(chosen)
-        chosen_str = id_to_token[chosen]
-        candidates = update_candidates(candidates, chosen_str)
-        for name, remaining in candidates.items():
-            if remaining == "":
-                chosen_answer = name
-    vprint(f"Verification: {chosen_func} -> {chosen_answer}", verbose)
-    return chosen_answer.lower() == "yes"
+    candidates = [vocab["yes"], vocab["no"]]
+    _, np_logits = masked_argmax(model, generated_ids, candidates, [])
+    yes_logit = np_logits[candidates[0]]
+    no_logit = np_logits[candidates[1]]
+
+    return not no_logit - yes_logit >= 2.3
 
 
 def engine(
