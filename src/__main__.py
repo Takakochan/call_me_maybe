@@ -3,7 +3,6 @@ import time
 import os
 import argparse
 import sys
-from typing import Any
 
 from llm_sdk.llm_sdk import Small_LLM_Model
 from .parser import Parser, ParserError
@@ -53,7 +52,7 @@ def parse_args() -> argparse.Namespace:
 def introduction_model(
     args: argparse.Namespace,
     model: Small_LLM_Model,
-    vocab: Any
+    vocab: dict[str, int]
 ) -> None:
     """Print a diagnostic banner describing the loaded model and vocab. """
     print("=" * 50, file=sys.stderr)
@@ -74,10 +73,9 @@ def main() -> None:
     parser = Parser(args.functions_definition, args.input)
     output_path = args.output
     model = Small_LLM_Model(args.model)
-    print(model)
     vocab_path = model.get_path_to_vocab_file()
     with open(vocab_path, "r", encoding="utf-8") as f:
-        vocab = json.load(f)
+        vocab: dict[str, int] = json.load(f)
     introduction_model(args, model, vocab)
     out_dir = os.path.dirname(output_path)
     if out_dir:

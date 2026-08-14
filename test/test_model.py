@@ -1,4 +1,5 @@
-"""pydanticモデル(src/model.py)のバリデーションテスト."""
+"""Validation tests for the pydantic models (src/model.py).
+pydanticモデル(src/model.py)のバリデーションテスト."""
 import pytest
 from pydantic import ValidationError
 
@@ -36,7 +37,8 @@ class TestParameterSchema:
         assert s.properties is None
 
     def test_nested_object_schema(self) -> None:
-        """再帰的な自己参照(objectがobjectを含む)が構築できる."""
+        """A recursive self-reference (an object containing an object) builds.
+        再帰的な自己参照(objectがobjectを含む)が構築できる."""
         s = ParameterSchema(
             type="object",
             properties={
@@ -75,7 +77,8 @@ class TestFunctionDefinition:
 
 
 class TestParameterValue:
-    """RootModel[Union[str, float, int, bool, dict[...]]]の受理テスト."""
+    """Acceptance tests for RootModel[Union[str, float, int, bool, dict[...]]].
+    RootModel[Union[str, float, int, bool, dict[...]]]の受理テスト."""
 
     @pytest.mark.parametrize(
         "raw",
@@ -86,7 +89,8 @@ class TestParameterValue:
         assert wrapped.root == raw
 
     def test_nested_dict_is_recursively_wrapped(self) -> None:
-        """dict値は要素ごとに再帰的にParameterValueへ包まれる."""
+        """A dict value has each element recursively wrapped in ParameterValue.
+        dict値は要素ごとに再帰的にParameterValueへ包まれる."""
         wrapped = ParameterValue({"nested": "value"})
         assert isinstance(wrapped.root, dict)
         assert wrapped.root["nested"].root == "value"
@@ -106,7 +110,8 @@ class TestParameterFetch:
         assert pf.parameters == {}
 
     def test_independent_default_dicts(self) -> None:
-        """default_factoryのおかげでインスタンス間でparametersが共有されない."""
+        """Thanks to default_factory, parameters isn't shared across instances.
+        default_factoryのおかげでインスタンス間でparametersが共有されない."""
         a = ParameterFetch()
         b = ParameterFetch()
         a.parameters["x"] = ParameterValue(1)

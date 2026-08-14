@@ -8,6 +8,7 @@ dependencies = [
     "transformers>=4.40.0",
     "huggingface-hub>=0.20.0",
     "pydantic>=2.13.3",
+    "fire>=0.7.1",
 ]
 
 [tool.uv.sources]

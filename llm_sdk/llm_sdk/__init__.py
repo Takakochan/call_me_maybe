@@ -79,6 +79,15 @@ class Small_LLM_Model:
         for p in self._model.parameters():
             p.requires_grad = False
 
+        # KV cache state: the past_key_values from the most recent forward
+        # pass, plus the exact input_ids that produced it. Used to detect,
+        # on the next call, whether the new input_ids are just the previous
+        # ones plus a few appended tokens - in which case only those new
+        # tokens need to be run through the model, reusing the cached
+        # attention Key/Value tensors for everything before them.
+        # self.kv_cache = None
+        # self._cached_ids: list[int] = []
+
     def encode(self, text: str) -> torch.Tensor:
         """Tokenise *text* and return a 2-D ``input_ids`` tensor on the target device."""
         ids = self._tokenizer.encode(text, add_special_tokens=False)
@@ -100,6 +109,52 @@ class Small_LLM_Model:
         # Get logits for the last token in the sequence for the batch (batch size 1)
         logits = out.logits[0, -1].tolist()
         return [float(x) for x in logits]
+
+    # def get_logits_from_input_ids(self, input_ids: list[int]) -> list[float]:
+    #     """
+    #     Given a list of input token ids, return the raw logits (no softmax) for the next token.
+
+    #     Transparently reuses the KV cache from the previous call when
+    #     ``input_ids`` is simply the previous call's ``input_ids`` with a
+    #     few new tokens appended (the common case when generating token by
+    #     token in a loop): only the new tokens are actually run through the
+    #     model, and the cached Key/Value tensors for everything before them
+    #     are reused instead of being recomputed. If ``input_ids`` does not
+    #     extend the previous call (e.g. a new prompt, or backtracking), the
+    #     cache is discarded and a full forward pass is run instead. Either
+    #     way, the returned logits are identical to always doing a full
+    #     forward pass - this only changes how much work it takes to get
+    #     them.
+    #     """
+    #     reuse_cache = (
+    #         self.kv_cache is not None
+    #         and len(input_ids) >= len(self._cached_ids)
+    #         and input_ids[: len(self._cached_ids)] == self._cached_ids
+    #     )
+    #     if reuse_cache:
+    #         new_ids = input_ids[len(self._cached_ids):]
+    #         if not new_ids:
+    #             new_ids = input_ids[-1:]
+    #         past_key_values = self.kv_cache
+    #     else:
+    #         new_ids = input_ids
+    #         past_key_values = None
+
+    #     input_tensor = torch.tensor(
+    #         [new_ids], device=self._device, dtype=torch.long
+    #     )
+    #     with torch.no_grad():
+    #         out = self._model(
+    #             input_ids=input_tensor,
+    #             past_key_values=past_key_values,
+    #             use_cache=True,
+    #         )
+
+    #     self.kv_cache = out.past_key_values
+    #     self._cached_ids = list(input_ids)
+    #     # Get logits for the last token in the sequence for the batch (batch size 1)
+    #     logits = out.logits[0, -1].tolist()
+    #     return [float(x) for x in logits]
 
     def get_path_to_vocab_file(self) -> str:
         vocab_file_name = self._tokenizer.vocab_files_names.get(

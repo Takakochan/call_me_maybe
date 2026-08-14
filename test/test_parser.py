@@ -1,4 +1,5 @@
-"""Parser(src/parser.py)の入力検証テスト: 欠損・不正JSON・スキーマ不一致."""
+"""Input-validation tests for Parser (src/parser.py): missing/bad JSON/schema.
+Parser(src/parser.py)の入力検証テスト: 欠損・不正JSON・スキーマ不一致."""
 import json
 from pathlib import Path
 

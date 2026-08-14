@@ -293,7 +293,9 @@ def bpe_encode_piece(
     return apply_bpe(symbols, merge_ranks)
 
 
-def tokens_to_ids(tokens: list[str], vocab: dict[str, int]) -> list[int]:
+def tokens_to_ids(
+    tokens: list[str], vocab: dict[str, int]
+) -> list[int]:
     """Map token strings to the model's numeric vocabulary IDs.
     Args:
         tokens: The token strings to look up.
@@ -316,7 +318,8 @@ def build_byte_decoder(byte_encoder: dict[int, str]) -> dict[str, int]:
 
 
 def encode(
-    text: str, merge_ranks: dict[tuple[str, str], int], vocab: dict[str, int]
+    text: str, merge_ranks: dict[tuple[str, str], int],
+    vocab: dict[str, int]
 ) -> list[int]:
     """Encode raw text into model token IDs, entirely from scratch.
     Runs the full from-scratch pipeline: pre-tokenize -> byte-level BPE

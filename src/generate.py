@@ -5,7 +5,8 @@ import argparse
 
 from llm_sdk.llm_sdk import Small_LLM_Model
 from .parser import Parser
-from .model import FunctionDefinition, ParameterFetch, ParameterValue
+from .model import ParameterSchema, FunctionDefinition
+from .model import ParameterFetch, ParameterValue
 from .bpe_tokenizer import encode, decode_tokens
 from .bpe_tokenizer import bytes_to_unicode, build_byte_decoder
 
@@ -22,7 +23,9 @@ def vprint(to_print: str, verbose: argparse.Namespace) -> None:
         print(to_print)
 
 
-def get_allowed_ids(remaining: str, vocab: dict[str, int]) -> list[int]:
+def get_allowed_ids(
+    remaining: str, vocab: dict[str, int]
+) -> list[int]:
     """Return token IDs that can legally start spelling remaining.
     Args:
         renaining: target srt which are not written ex) "fn_greet"
@@ -30,7 +33,7 @@ def get_allowed_ids(remaining: str, vocab: dict[str, int]) -> list[int]:
     Returns:
         IDs list of all tokens which match the begining of remaining
     """
-    allowed = []
+    allowed: list[int] = []
     for i in range(1, len(remaining) + 1):
         token = remaining[:i]
         # print(token)
@@ -85,7 +88,7 @@ def update_candidates(
     }
 
 
-def vocab_id_to_token(vocab: dict) -> dict[int, str]:
+def vocab_id_to_token(vocab: dict[str, int]) -> dict[int, str]:
     """Invert a token-to-ID vocabulary into an ID-to-token mapping.
     Args:
         vocab: The token-string-to-ID vocabulary mapping.
@@ -143,12 +146,11 @@ def get_parameter_type_list(
 
 def masked_argmax(
     model: Small_LLM_Model,
-    generated_ids: list,
+    generated: list,
     allowed_ids: list[int],
-    discouraged_ids: list[int],
-) -> tuple[int, Any]:
+    discouraged_ids: "list[int] | np.ndarray",
+) -> tuple[int, np.ndarray]:
     """Pick the next token ID under a hard mask plus a soft penalty.
-    ハードなマスクとソフトな減点を適用した上で、次のトークンIDを選ぶ。
 
     This is the single function implementing constrained decoding: every
     token *not* in ``allowed_ids`` gets ``-inf`` added to its logit, so it
@@ -157,6 +159,7 @@ def masked_argmax(
     finite ``-8.0`` penalty, biasing the model away from them without
     forbidding them outright (used e.g. to discourage, but not prevent,
     copying the parameter's own name as its value).
+
     Args:
         model: The LLM wrapper to query for next-token logits.
         generated: The token IDs generated so far (the current context).
@@ -164,11 +167,18 @@ def masked_argmax(
             other token is masked to ``-inf``.
         discouraged_ids: Token IDs to softly penalize (``-8.0``) without
             excluding them, as a plain list or a numpy array of IDs.
+
     Returns:
-        The chosen token ID: the argmax of the masked-and-penalized
-        logits.。
+        A tuple of the chosen token ID (the argmax of the masked-and-
+        penalized logits) and the raw, unmasked logits array for the
+        full vocabulary as returned by the model. The raw array lets a
+        caller inspect specific tokens' scores directly (e.g. comparing
+        two candidates' logits by margin) without querying the model a
+        second time - see ``verify_function_choice``.
     """
-    logits_np = np.array(model.get_logits_from_input_ids(generated_ids))
+    # print("in masked_argmax")
+    # print(generated)
+    logits_np = np.array(model.get_logits_from_input_ids(generated))
     mask = np.full_like(logits_np, -np.inf)
     mask[allowed_ids] = 0.0
     mask[discouraged_ids] = -8.0
@@ -189,7 +199,7 @@ def _non_digit_ids(vocab: dict[str, int]) -> list[int]:
     """
     return [
         t_id for token, t_id in vocab.items()
-        if token != vocab[","] and token != vocab["}"] and not token.isdigit()
+        if token != "," and token != "}" and not token.isdigit()
         ]
 
 
@@ -212,7 +222,7 @@ def _digit_ids(vocab: dict[str, int]) -> list[int]:
 
 def _generate_object_value(
     parameter_title: str,
-    param_schema: Any,
+    param_schema: ParameterSchema,
     prompt: str,
     model: Small_LLM_Model,
     vocab: dict[str, int],
@@ -265,7 +275,7 @@ def _generate_object_value(
 
 def _generate_num_value(
     parameter_title: str,
-    param_schema: Any,
+    param_schema: ParameterSchema,
     prompt: str,
     model: Small_LLM_Model,
     vocab: dict[str, int],
@@ -294,7 +304,7 @@ def _generate_num_value(
             without terminating (indicates a runaway loop).
     """
     digit_ids = _digit_ids(vocab)
-    TERMINATOR_LIST = [vocab[","], vocab["}"]]
+    TERMINATOR_LIST: list[int] = [vocab[","], vocab["}"]]
     prompt = prompt + '"' + parameter_title + '": '
     value = ""
     if verbose:
@@ -306,7 +316,7 @@ def _generate_num_value(
         allowed_ids = digit_ids if not value \
             else digit_ids + TERMINATOR_LIST
         discouraged_ids: list[int] = []
-        chosen = masked_argmax(
+        chosen, _ = masked_argmax(
             model, generated_ids,
             allowed_ids, discouraged_ids
         )
@@ -351,10 +361,10 @@ def _generate_boolean_value(
         print(f"Prompt: {prompt}")
     generated_ids = encode(prompt, merge_ranks, vocab)
     candidates = {"true": "true", "false": "false"}
-    chosen_bool: Any = None
+    chosen_bool: str | None = None
     while chosen_bool is None:
         allowed_ids = get_union_allowed_ids(candidates, vocab)
-        chosen = masked_argmax(model, generated_ids, allowed_ids, [])
+        chosen, _ = masked_argmax(model, generated_ids, allowed_ids, [])
         generated_ids.append(chosen)
         chosen_str = id_to_token[chosen]
         candidates = update_candidates(candidates, chosen_str)
@@ -413,7 +423,7 @@ def _generate_str_value(
             else all_ids + [vocab[","], vocab["}"]]
         parameter_id = get_allowed_ids(parameter_title, vocab)
         discouraged_ids = digit_ids + parameter_id
-        chosen = masked_argmax(
+        chosen, _ = masked_argmax(
             model, generated_ids, allowed_ids,
             discouraged_ids
         )
@@ -434,14 +444,14 @@ def _generate_str_value(
         value = decode_tokens(value_ids, id_to_token, byte_decoder)
     else:
         value = ""
-    value = value.lstrip(" ").rstrip(",")
-    vprint(f"Completed Value:=={value}==", verbose)
+    test_value = value.lstrip(" ").rstrip(",")
+    vprint(f"Completed Value:=={test_value}==", verbose)
     return value, prompt + value + '"'
 
 
 def generate_value(
     parameter_title: str,
-    param_schema: Any,
+    param_schema: ParameterSchema,
     prompt: str,
     model: Small_LLM_Model,
     vocab: dict[str, int],
@@ -455,7 +465,7 @@ def generate_value(
     directly into ``prompt`` without consulting the model - only the
     actual value content is generated token by token, using constrained
     decoding appropriate to the type. See ``_generate_object_value``,
-    ``_generate_number_value``, ``_generate_boolean_value``, and
+    ``_generate_num_value``, ``_generate_boolean_value``, and
     ``_generate_string_value`` for the type-specific details.
     Args:
         parameter_title: The name of the parameter being generated.
@@ -608,8 +618,8 @@ def generate_function_call(
     vprint("let AI model chose a FUNCTION by feeding dynamic prompt", verbose)
     vprint(f"Dynamic prompt: {full_prompt}", verbose)
     generated_ids = encode(full_prompt, merge_ranks, vocab)
-    # prefix = '{"name": "'
-    prefix_ids = encode(full_prompt, merge_ranks, vocab)
+    prefix = '{"name": "'
+    prefix_ids = encode(prefix, merge_ranks, vocab)
     generated_ids.extend(prefix_ids)
     candidates = {f.name: f.name for f in funcs}
     candidates["fn_none"] = "fn_none"
@@ -621,7 +631,7 @@ def generate_function_call(
             )
         allowed_ids = get_union_allowed_ids(candidates, vocab)
         discouraged_ids: list[int] = []
-        chosen = masked_argmax(
+        chosen, _ = masked_argmax(
             model, generated_ids,
             allowed_ids, discouraged_ids
         )
@@ -648,45 +658,50 @@ def verify_function_choice(
     chosen_func: str,
     model: Small_LLM_Model,
     vocab: dict[str, int],
-    id_to_token: dict[int, str],
     merge_ranks: dict[tuple[str, str], int],
-    verbose: argparse.Namespace,
+    verbose: argparse.Namespace
 ) -> bool:
     """Ask the model to double-check that the chosen function actually fits.
-    Acts as a second opinion after ``generate_function_call``: the model
-    is asked a plain yes/no question, decoded via the same "yes"/"no"
-    prefix-matching used elsewhere, so it can only ever answer one of
-    those two words.
+
+    Acts as a second opinion after ``generate_function_call``. Unlike the
+    prefix-matched candidates used elsewhere, this asks a single yes/no
+    question in one forward pass and compares the raw logits of "yes"
+    against "no" directly, rather than taking a plain argmax over them.
     Args:
         user_prompt: The user's natural-language request.
         chosen_func: The function name selected by
             ``generate_function_call``, to be verified.
         model: The LLM wrapper used for constrained decoding.
-        vocab: The token-string-to-ID vocabulary mapping.
-        id_to_token: The inverse of ``vocab``, from ID to token string.
+        vocab: The token-string-to-ID vocabulary mapping, used to look up
+            the "yes"/"no" token IDs directly.
         merge_ranks: The BPE merge-priority table from ``load_merges``.
-        verbose: Truthy to print the verification result.
     Returns:
-        ``True`` if the model answers "yes" (the choice is appropriate),
-        ``False`` if it answers "no".
-    """
-    verify_prompt = (
-        f'User request: "{user_prompt}"\n'
-        f"Selected function: {chosen_func}\n"
-        f"Is this selected function appropriate for the User request?"
-    )
-    generated_ids = encode(verify_prompt, merge_ranks, vocab)
-    candidates = [vocab["yes"], vocab["no"]]
-    _, np_logits = masked_argmax(model, generated_ids, candidates, [])
-    yes_logit = np_logits[candidates[0]]
-    no_logit = np_logits[candidates[1]]
+        ``True`` if "yes" beats "no" by more than the confidence margin
+        (the choice is appropriate), ``False`` otherwise - including
+        cases where "yes" wins but not convincingly.
+        """
 
-    return not no_logit - yes_logit >= 2.3
+    verify_prompt = (
+        f"Is this selected function appropriate for the User request? "
+        f"Selected function: {chosen_func}\n"
+        f"User request: {user_prompt}\n"
+        "Answer: "
+    )
+    generated = encode(verify_prompt, merge_ranks, vocab)
+    allowed_ids = [vocab["yes"], vocab["no"]]
+    _, np_logits = masked_argmax(model, generated, allowed_ids, [])
+    logit_yes = np_logits[allowed_ids[0]]
+    logit_no = np_logits[allowed_ids[1]]
+    vprint("\nVerification feature", verbose)
+    vprint(f"User Promt was: {user_prompt}", verbose)
+    vprint(f"Chosen func was: {chosen_func}", verbose)
+    vprint(f"no - yes = {logit_no - logit_yes}\n", verbose)
+    return not logit_no - logit_yes >= -2.3
 
 
 def engine(
     parser: Parser, model: Small_LLM_Model,
-    vocab: Any, verbose: argparse.Namespace
+    vocab: dict[str, int], verbose: argparse.Namespace
 ) -> list[dict]:
     """Run the full function-calling pipeline over every parsed prompt.
     For each prompt: select a function, verify the selection, generate
@@ -738,11 +753,12 @@ def engine(
                 chosen_func,
                 model,
                 vocab,
-                id_to_token,
                 merge_ranks,
-                verbose,
+                verbose
             ):
                 chosen_func = "fn_none"
+                print("Could not find appropliate function."
+                      "Output in Json file will show fn_non()")
 
             param_fetch_dict.name = chosen_func
 
@@ -769,6 +785,5 @@ def engine(
             vprint(f"Error for a prompt {user_prompt.prompt} - {e}", verbose)
             answer_list.append({"prompt": user_prompt.prompt,
                                 "name":  "fn_none",
-                                "parameters": {},
-                                "error_message": str(e)})
+                                "parameters": {}})
     return answer_list

@@ -27,23 +27,16 @@ class InputFileError(ParserError):
 
 class InputSchemaError(ParserError):
     """The input JSON parsed fine but does not match the expected schema.
-    入力JSON自体は解析できたが、期待するスキーマと一致しない場合のエラー。
     Covers cases such as: the top level is not a JSON array, or an entry
     is missing a required key or has a value of the wrong type.
-    トップレベルがJSON配列でない、必須キーが欠けている、値の型が
-    間違っている、といったケースを含む。
     """
 
     def __init__(self, path: str, original: ValidationError | str) -> None:
         """Build the error with the offending path and the validation cause.
-        問題のパスと、バリデーション失敗の原因からエラーを構築する。
         Args:
             path: The file path whose contents failed schema validation.
-                スキーマ検証に失敗したファイルのパス。
             original: The pydantic ``ValidationError`` that triggered this,
                 or a plain string describing the mismatch.
-                原因となったpydanticの``ValidationError``、または不一致を
-                説明する単純な文字列。
         """
         self.path = path
         self.original = original

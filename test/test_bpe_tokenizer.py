@@ -1,10 +1,12 @@
-"""Custom BPEトークナイザーのテストスイート(モデル不要、軽量)."""
+import pytest
+
 from src.bpe_tokenizer import (
     pre_tokenize,
     bytes_to_unicode,
     build_byte_decoder,
     apply_bpe,
     decode_tokens,
+    encode,
 )
 
 
@@ -13,7 +15,8 @@ from src.bpe_tokenizer import (
 # ============================================================
 
 class TestPreTokenize:
-    """pre_tokenizeの単体テスト."""
+    """Unit tests for pre_tokenize.
+    pre_tokenizeの単体テスト."""
 
     def test_basic_sentence(self) -> None:
         result = pre_tokenize("What is the sum of 265 and 345?")
@@ -23,7 +26,8 @@ class TestPreTokenize:
         ]
 
     def test_digits_isolated(self) -> None:
-        """数字は1文字ずつ分離される(\\p{N}に量指定子が無いため)."""
+        """Digits are isolated one at a time (\\p{N} carries no quantifier).
+        数字は1文字ずつ分離される(\\p{N}に量指定子が無いため)."""
         result = pre_tokenize("abc123")
         assert "123" not in result
         assert "1" in result and "2" in result and "3" in result
@@ -38,7 +42,8 @@ class TestPreTokenize:
         assert "'re" in result
 
     def test_multiple_spaces(self) -> None:
-        """連続スペースは最後の1文字を次の単語側に残す."""
+        """A run of consecutive spaces keeps its last char for the next word.
+        連続スペースは最後の1文字を次の単語側に残す."""
         result = pre_tokenize("Hello   world")
         assert result == ["Hello", "  ", " world"]
 
@@ -88,21 +93,25 @@ class TestPreTokenize:
 # ============================================================
 
 class TestBytesToUnicode:
-    """bytes_to_unicode変換表のテスト."""
+    """Tests for the bytes_to_unicode conversion table.
+    bytes_to_unicode変換表のテスト."""
 
     def test_bijection(self) -> None:
-        """256バイト全てが重複なくユニークな文字に対応."""
+        """All 256 bytes map to unique characters, with no duplicates.
+        256バイト全てが重複なくユニークな文字に対応."""
         be = bytes_to_unicode()
         assert len(be) == 256
         assert len(set(be.values())) == 256
 
     def test_space_is_g_dot(self) -> None:
-        """半角スペース(0x20)がĠ(U+0120)に変換される."""
+        """The ASCII space (0x20) is converted to Ġ (U+0120).
+        半角スペース(0x20)がĠ(U+0120)に変換される."""
         be = bytes_to_unicode()
         assert be[0x20] == "Ġ"
 
     def test_printable_ascii_unchanged(self) -> None:
-        """印刷可能なASCII文字はそのまま."""
+        """Printable ASCII characters are left unchanged.
+        印刷可能なASCII文字はそのまま."""
         be = bytes_to_unicode()
         assert be[ord("A")] == "A"
         assert be[ord("!")] == "!"
@@ -114,7 +123,8 @@ class TestBytesToUnicode:
 # ============================================================
 
 class TestApplyBpe:
-    """BPEマージロジックのテスト."""
+    """Tests for the BPE merge logic.
+    BPEマージロジックのテスト."""
 
     def test_simple_merge(self) -> None:
         symbols = ["a", "b", "c"]
@@ -127,7 +137,8 @@ class TestApplyBpe:
         assert apply_bpe(symbols, ranks) == ["x", "y", "z"]
 
     def test_recursive_merge(self) -> None:
-        """merges.txtで見た'Ġ Ġ'→'ĠĠ'→'ĠĠĠĠ'の再帰マージ."""
+        """The recursive merge 'Ġ Ġ' -> 'ĠĠ' -> 'ĠĠĠĠ' seen in merges.txt.
+        merges.txtで見た'Ġ Ġ'→'ĠĠ'→'ĠĠĠĠ'の再帰マージ."""
         G = "Ġ"
         symbols = [G, G, G, G]
         ranks = {(G, G): 0, (G + G, G + G): 1}
@@ -145,10 +156,12 @@ class TestApplyBpe:
 # ============================================================
 
 class TestDecode:
-    """decode_tokensのテスト."""
+    """Tests for decode_tokens.
+    decode_tokensのテスト."""
 
     def test_ascii_round_trip(self) -> None:
-        """ASCII文字列がencode→decodeで元に戻る."""
+        """An ASCII string survives an encode -> decode round trip.
+        ASCII文字列がencode→decodeで元に戻る."""
         be = bytes_to_unicode()
         bd = build_byte_decoder(be)
         mini_vocab = {"What": 0, "Ġis": 1, "Ġfun": 2}
@@ -157,7 +170,8 @@ class TestDecode:
         assert result == "What is fun"
 
     def test_japanese_round_trip(self) -> None:
-        """日本語(マルチバイト)が正しくdecodeされる."""
+        """Japanese (multi-byte) text decodes correctly.
+        日本語(マルチバイト)が正しくdecodeされる."""
         be = bytes_to_unicode()
         bd = build_byte_decoder(be)
         a_bytes = "あ".encode("utf-8")
@@ -167,8 +181,57 @@ class TestDecode:
         assert result == "あ"
 
     def test_byte_decoder_is_inverse(self) -> None:
-        """byte_decoderがbyte_encoderの完全な逆引きになっている."""
+        """byte_decoder is a complete, exact inverse of byte_encoder.
+        byte_decoderがbyte_encoderの完全な逆引きになっている."""
         be = bytes_to_unicode()
         bd = build_byte_decoder(be)
         for byte_val, char in be.items():
             assert bd[char] == byte_val
+
+
+# ============================================================
+# encode (top-level pipeline: pre_tokenize -> BPE -> vocab lookup)
+# ============================================================
+
+class TestEncode:
+    """Tests for encode(): pre_tokenize + bpe_encode_piece + tokens_to_ids.
+    encode()のテスト: pre_tokenize+bpe_encode_piece+tokens_to_idsの結合."""
+
+    def test_single_piece_fully_merges_into_one_token(self) -> None:
+        """With full merge_ranks, one piece merges into a single token ID.
+        merge_ranksが揃っていれば、1ピースが1トークンIDへ完全にマージされる."""
+        merge_ranks = {("a", "b"): 0, ("ab", "c"): 1}
+        vocab = {"abc": 0}
+        assert encode("abc", merge_ranks, vocab) == [0]
+
+    def test_concatenates_ids_across_pretoken_pieces_in_order(self) -> None:
+        """IDs stay ordered even when concatenated across pre-token pieces.
+        複数のpre-tokenピースに跨っても、IDが順序通りに連結される."""
+        be = bytes_to_unicode()
+        # "a b" -> pre_tokenize -> ["a", " b"]; no merges, so each byte-symbol
+        # ("a", "Ġ", "b") stays its own token.
+        vocab = {be[ord("a")]: 0, be[0x20]: 1, be[ord("b")]: 2}
+        merge_ranks: dict[tuple[str, str], int] = {}
+        assert encode("a b", merge_ranks, vocab) == [0, 1, 2]
+
+    def test_unknown_token_raises_key_error(self) -> None:
+        """A token missing from vocab raises KeyError (no unknown tokens).
+        vocabに存在しないトークンに出会うとKeyErrorになる(未知語は許容しない)."""
+        merge_ranks: dict[tuple[str, str], int] = {}
+        vocab: dict[str, int] = {}
+        with pytest.raises(KeyError):
+            encode("a", merge_ranks, vocab)
+
+    def test_round_trips_through_decode_tokens(self) -> None:
+        """IDs from encode() survive a round trip through decode_tokens.
+        encodeしたIDをdecode_tokensに通すと、元のテキストに戻る."""
+        text = "Hi there, 5!"
+        be = bytes_to_unicode()
+        bd = build_byte_decoder(be)
+        needed_bytes = sorted(set(text.encode("utf-8")))
+        vocab = {be[b]: i for i, b in enumerate(needed_bytes)}
+        merge_ranks: dict[tuple[str, str], int] = {}
+
+        ids = encode(text, merge_ranks, vocab)
+        id_to_token = {v: k for k, v in vocab.items()}
+        assert decode_tokens(ids, id_to_token, bd) == text
