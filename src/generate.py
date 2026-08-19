@@ -699,13 +699,107 @@ def verify_function_choice(
     return not logit_no - logit_yes >= -2.3
 
 
+def select_verified_function(
+    user_prompt: str,
+    funcs: list[FunctionDefinition],
+    model: Small_LLM_Model,
+    vocab: dict[str, int],
+    id_to_token: dict[int, str],
+    verbose: argparse.Namespace,
+    merge_ranks: dict[tuple[str, str], int],
+) -> str:
+    """Select a function and fall back to "fn_none" if it fails verification.
+    Combines ``generate_function_call`` with ``verify_function_choice``:
+    the model first picks a candidate function, then a second forward
+    pass double-checks that choice actually fits the request.
+    Args:
+        user_prompt: The user's natural-language request.
+        funcs: The available function definitions to choose among.
+        model: The LLM wrapper used for constrained decoding.
+        vocab: The token-string-to-ID vocabulary mapping.
+        id_to_token: The inverse of ``vocab``, from ID to token string.
+        verbose: Truthy to print step-by-step selection traces.
+        merge_ranks: The BPE merge-priority table from ``load_merges``.
+    Returns:
+        The verified function name, or ``"fn_none"`` if no function fits
+        or the chosen one fails verification.
+    """
+    chosen_func = generate_function_call(
+        user_prompt, funcs, model, vocab, id_to_token, verbose, merge_ranks
+    )
+    if not verify_function_choice(
+        user_prompt, chosen_func, model, vocab, merge_ranks, verbose
+    ):
+        chosen_func = "fn_none"
+        print("Could not find appropliate function."
+              "Output in Json file will show fn_non()")
+    return chosen_func
+
+
+def process_prompt(
+    user_prompt: Any,
+    funcs: list[FunctionDefinition],
+    model: Small_LLM_Model,
+    vocab: dict[str, int],
+    id_to_token: dict[int, str],
+    verbose: argparse.Namespace,
+    merge_ranks: dict[tuple[str, str], int],
+) -> dict:
+    """Run the full pipeline for a single prompt: select, verify, generate.
+    Args:
+        user_prompt: The parsed prompt object (with a ``.prompt`` field)
+            to process.
+        funcs: The available function definitions to choose among.
+        model: The LLM wrapper used for constrained decoding.
+        vocab: The token-string-to-ID vocabulary mapping.
+        id_to_token: The inverse of ``vocab``, from ID to token string.
+        verbose: Truthy to print step-by-step traces.
+        merge_ranks: The BPE merge-priority table from ``load_merges``.
+    Returns:
+        A result dict with exactly the keys ``"prompt"``, ``"name"``,
+        and ``"parameters"``.
+    """
+    vprint("\n===============New Request================", verbose)
+    vprint(f"User prompt: {user_prompt}", verbose)
+    param_fetch_dict = ParameterFetch()
+    param_fetch_dict.prompt = user_prompt.prompt
+
+    vprint("\n========Select Function=======", verbose)
+    chosen_func = select_verified_function(
+        user_prompt.prompt, funcs, model, vocab,
+        id_to_token, verbose, merge_ranks,
+    )
+    param_fetch_dict.name = chosen_func
+
+    if chosen_func == "fn_none":
+        vprint("\n=======No matching function=======", verbose)
+    else:
+        func = next(d for d in funcs if d.name == chosen_func)
+        vprint("\n=======Generate Parameter=======", verbose)
+        generate_parameter(
+            param_fetch_dict,
+            user_prompt.prompt,
+            chosen_func,
+            func.parameters,
+            model,
+            vocab,
+            id_to_token,
+            verbose,
+            merge_ranks,
+        )
+
+    vprint("\n****Complete generation for the prompt****", verbose)
+    vprint(param_fetch_dict.model_dump_json(indent=2), verbose)
+    return param_fetch_dict.model_dump()
+
+
 def engine(
     parser: Parser, model: Small_LLM_Model,
     vocab: dict[str, int], verbose: argparse.Namespace
 ) -> list[dict]:
     """Run the full function-calling pipeline over every parsed prompt.
-    For each prompt: select a function, verify the selection, generate
-    its arguments (skipped for "fn_none"), and record the result. Each
+    For each prompt, ``process_prompt`` selects a function, verifies the
+    selection, and generates its arguments (skipped for "fn_none"). Each
     prompt is processed inside its own ``try``/``except`` so that one
     prompt's failure (e.g. a runaway-generation guard tripping) does not
     abort the rest of the batch; on failure, a schema-compliant
@@ -733,54 +827,11 @@ def engine(
 
     for user_prompt in prompts:
         try:  # for Bonus "Advanced error recovery try/except"
-            vprint("\n===============New Request================", verbose)
-            vprint(f"User prompt: {user_prompt}", verbose)
-            param_fetch_dict = ParameterFetch()
-            param_fetch_dict.prompt = user_prompt.prompt
-            vprint("\n========Select Function=======", verbose)
-            chosen_func = generate_function_call(
-                user_prompt.prompt,
-                funcs,
-                model,
-                vocab,
-                id_to_token,
-                verbose,
-                merge_ranks,
+            result = process_prompt(
+                user_prompt, funcs, model, vocab,
+                id_to_token, verbose, merge_ranks,
             )
-
-            if not verify_function_choice(
-                user_prompt.prompt,
-                chosen_func,
-                model,
-                vocab,
-                merge_ranks,
-                verbose
-            ):
-                chosen_func = "fn_none"
-                print("Could not find appropliate function."
-                      "Output in Json file will show fn_non()")
-
-            param_fetch_dict.name = chosen_func
-
-            if chosen_func == "fn_none":
-                vprint("\n=======No matching function=======", verbose)
-            else:
-                func = next(d for d in funcs if d.name == chosen_func)
-                vprint("\n=======Generate Parameter=======", verbose)
-                generate_parameter(
-                    param_fetch_dict,
-                    user_prompt.prompt,
-                    chosen_func,
-                    func.parameters,
-                    model,
-                    vocab,
-                    id_to_token,
-                    verbose,
-                    merge_ranks,
-                )
-            answer_list.append(param_fetch_dict.model_dump())
-            vprint("\n****Complete generation for the prompt****", verbose)
-            vprint(param_fetch_dict.model_dump_json(indent=2), verbose)
+            answer_list.append(result)
         except Exception as e:
             vprint(f"Error for a prompt {user_prompt.prompt} - {e}", verbose)
             answer_list.append({"prompt": user_prompt.prompt,
